@@ -1,0 +1,462 @@
+# -*- coding: utf-8 -*-
+
+"""
+This is an extension for Flask to integrate CheddarGetter for subscription
+management. It is heavily inspired by pycheddar:
+
+    https://github.com/feedmagnet/pycheddar
+
+"""
+
+import re
+import sys
+import copy
+import inflection
+import requests
+from requests.adapters import HTTPAdapter
+from os import environ
+from lxml import etree
+from flask import app
+from flask import current_app
+
+from flask_cheddargetter.exceptions import BadRequest
+from flask_cheddargetter.exceptions import NotFound
+from flask_cheddargetter.exceptions import UnexpectedResponse
+from flask_cheddargetter.exceptions import GatewayFailure
+from flask_cheddargetter.exceptions import GatewayConnectionError
+from flask_cheddargetter.exceptions import ValidationError
+
+
+try:
+    from flask import _app_ctx_stack as stack
+except ImportError:
+    from flask import _request_ctx_stack as stack
+
+
+class CheddarGetter(object):
+
+    def __init__(self, app=None):
+        self.app = app
+        if app is not None:
+            self.init_app(app)
+
+    def init_app(self, app):
+        app.config.setdefault('CHEDDAR_EMAIL',
+                environ.get('CHEDDAR_EMAIL', None))
+        app.config.setdefault('CHEDDAR_PASSWORD',
+                environ.get('CHEDDAR_PASSWORD', None))
+        app.config.setdefault('CHEDDAR_PRODUCT',
+                environ.get('CHEDDAR_PRODUCT', None))
+        app.config.setdefault('CHEDDAR_API_URL',
+                environ.get('CHEDDAR_API_URL', 'https://cheddargetter.com/xml'))
+
+        if not app.config['CHEDDAR_EMAIL']:
+            raise Exception('CHEDDAR_EMAIL not configured')
+        if not app.config['CHEDDAR_PASSWORD']:
+            raise Exception('CHEDDAR_PASSWORD not configured')
+        if not app.config['CHEDDAR_PRODUCT']:
+            raise Exception('CHEDDAR_PRODUCT not configured')
+
+        if hasattr(app, 'teardown_appcontext'):
+            app.teardown_appcontext(self.teardown)
+        else:
+            app.teardown_request(self.teardown)
+
+        if not hasattr(app, 'extensions'):
+            app.extensions = {}
+        app.extensions['cheddargetter'] = self
+
+    def teardown(self, exception):
+        return
+
+
+class CheddarObject(object):
+    """ A base class for CheddarGetter objects. """
+
+    def __init__(self, parent=None, **kwargs):
+        self._product_code = current_app.config['CHEDDAR_PRODUCT']
+        self._data = {}
+        self._dirty_data = {}
+        self._id = None
+        self._code = None
+
+        if parent is not None:
+            setattr(self, parent.__class__.__name__.lower(), parent)
+
+        for i in kwargs:
+            setattr(self, i, kwargs[i])
+
+    def __setattr__(self, key, value):
+        #: If modifying a private attribute of the class then set it directly
+        if key[0] == '_':
+            self.__dict__[key] = value
+        elif key == 'code':
+            if self._id is None:
+                self._code = value
+            else:
+                raise AttributeError(
+                        'Saved CheddarGetter object codes are immutable')
+        elif key == 'id':
+            raise AttributeError('CheddarGetter ID is immutable')
+        elif isinstance(value, CheddarObject) or isinstance(value, list):
+            self.__dict__[key] = value
+        else:
+            if inflection.underscore(key) not in self._data or \
+                    value != self._data[inflection.underscore(key)]:
+                #: Add the change to the dirty data for save methods
+                self._dirty_data[inflection.underscore(key)] = value
+            self._data[inflection.underscore(key)] = value
+
+    def __getattr__(self, key):
+        if key in ['id', 'code']:
+            return self.__dict__['_{}'.format(key)]
+        elif key[0] == '_' or key in self.__dict__:
+            return self.__dict__[key]
+        elif key in self._dirty_data:
+            return self._dirty_data[inflection.underscore(key)]
+        elif key in self._data:
+            return self._data[inflection.underscore(key)]
+        else:
+            raise AttributeError, 'Key {} does not exist'.format(key)
+
+    def __eq__(self, other):
+        return self._id == other._id and self._id is not None
+
+    def __neq__(self, other):
+        return not self.__eq__(other)
+
+    def __contains__(self, key):
+        if key == 'id' or key == '_id':
+            return self._id is not None
+        if key == 'code' or key == '_code':
+            return self._code is not None
+        return key in self._data
+
+    def __iter__(self):
+        return self.iteritems()
+
+    def _asdict(self):
+        data = {}
+        for key in getattr(self, '__serialize__', []):
+            if hasattr(self, key):
+                data[key] = getattr(self, key)
+        return data
+
+    def is_new(self):
+        return not 'id' in self
+
+    def _load_from_xml(self, xml):
+        self._id = xml.get('id')
+        self._code = xml.get('code')
+
+        for child in xml.getchildren():
+            if len(child.getchildren()) > 0:
+                #: Determine if children are all of the same type, e.g. Items
+                #: has many Item children, or if the current child should be
+                #: instantiated as a class
+                is_list = len(set([i.tag for i in child.getchildren()])) == 1
+                if not is_list:
+                    #: Single object
+                    try:
+                        cls = getattr(sys.modules[__name__],
+                                    inflection.camelize(child.tag))
+                        setattr(self, inflection.underscore(child.tag),
+                                cls.from_xml(child, parent=self))
+                    except AttributeError:
+                        #: No class for this object, ignore it
+                        pass
+                    continue
+                else:
+                    setattr(self, child.tag, [])
+                    for item_xml in child.getchildren():
+                        try:
+                            cls = getattr(sys.modules[__name__],
+                                    inflection.camelize(item_xml.tag))
+                            getattr(self, child.tag).append(cls.from_xml(
+                                item_xml, parent=self))
+                        except AttributeError:
+                            #: Give up, remaining items are all the same and
+                            #: there is no class for them
+                            break
+                    continue
+
+            value = child.text
+            #: Parse numeric types
+            if value is not None:
+                if re.match(r'^[\d]+$', value):
+                    value = int(value)
+                elif re.match(r'^[\d.]+$', value):
+                    value = float(value)
+            key = inflection.underscore(child.tag)
+            self._data[key] = value
+
+        #: Reset dirty data because all data should now be clean
+        self._dirty_data = {}
+
+    def _is_dirty(self):
+        return len (self._dirty_data) > 0
+
+    @classmethod
+    def from_xml(cls, xml, **kwargs):
+        parent = kwargs.pop('parent', None)
+        new = cls(parent=parent, **kwargs)
+        new._load_from_xml(xml)
+        return new
+
+    @classmethod
+    def request(cls, path, code=None, is_new=False, **kwargs):
+        #: Build the request URL
+        url = current_app.config.get('CHEDDAR_API_URL') + path + \
+                '/productCode/{}'.format(
+                        current_app.config.get('CHEDDAR_PRODUCT'))
+        if code is not None and not is_new:
+            url += '/code/{}'.format(code)
+        elif is_new:
+            kwargs['code'] = code
+
+        #: Set keys to Zend convention
+        for key in copy.copy(kwargs):
+            if '_' in key:
+                kwargs[inflection.camelize(key, False)] = kwargs[key]
+                del kwargs[key]
+
+        print url
+        print kwargs
+
+        #: Execute the request
+        client = requests.Session()
+        client.auth = (current_app.config.get('CHEDDAR_EMAIL'),
+            current_app.config.get('CHEDDAR_PASSWORD'))
+        response = client.post(url, data=kwargs)
+
+        try:
+            content =  etree.fromstring(response.content)
+        except:
+            raise UnexpectedResponse('CheddarGetter sent Invalid XML',
+                    response.content)
+
+        if response.status_code >= 400 or content.tag == 'error':
+            if response.status_code == 400:
+                raise BadRequest, content.text
+            if response.status_code == 412:
+                raise BadRequest, '{}: {}'.format(content.text,
+                        content.get('auxCode'))
+            elif response.status_code == 404:
+                raise NotFound, content.text
+            elif response.status_code == '422':
+                raise GatewayFailure, content.text
+            elif response.status_code == '502':
+                raise GatewayConnectionError, content.text
+
+        response.close()
+
+        return content
+
+class Customer(CheddarObject):
+
+    def __init__(self, **kwargs):
+        #: Add an empty subscription to the customer object because the
+        #: CheddarGetter API creates a customer and subscription at the same
+        #: time
+        self.subscriptions = []
+        self.subscriptions.append(Subscription(parent=self))
+        super(Customer, self).__init__(**kwargs)
+
+    @classmethod
+    def all():
+        try:
+            customers = []
+            xml = cls.request('/customers/get', **kwargs)
+            for customer_xml in xml.getiterator(tag='customer'):
+                customers.append(Customer.from_xml(customer_xml))
+            return customers
+        except NotFound:
+            return []
+
+    @classmethod
+    def get(cls, code):
+        xml = cls.request('/customers/get', code=code)
+        for customer_xml in xml.getiterator(tag='customer'):
+            return Customer.from_xml(customer_xml)
+
+    @property
+    def subscription(self):
+        return self.subscriptions[0]
+
+    def validate(self):
+        # Make sure this object has a code
+        if not self._code:
+            raise ValidationError, 'No code has been set.'
+
+        # The subscription object must also validate
+        self.subscription.validate()
+
+        # The customer object must have all required keys
+        required_keys = ['first_name', 'last_name', 'email']
+        for i in required_keys:
+            if i not in self:
+                raise ValidationError, 'Missing required key: "%s"' % i
+
+        return True
+
+    def save(self):
+        self.validate()
+
+        #: Collect all the keys from the subscription and modify them to
+        #: CheddarGetter format for submission with the customer
+        subscription_fields = ['cc_first_name', 'cc_last_name', 'cc_number',
+                               'cc_expiration', 'cc_card_code', 'cc_zip',
+                               'return_url', 'cancel_url', 'method',
+                               'plan_code']
+        for key in subscription_fields:
+            if key in self.subscription._dirty_data:
+                self._dirty_data['subscription[%s]' % key] = \
+                        getattr(self.subscription, key)
+
+        if self.is_new():
+            #: Object doesn't exist in Cheddargetter, create it
+           xml = self.request('/customers/new', code=self._code,
+                    is_new=True, **self._dirty_data)
+        else:
+            #: Object exists in CheddarGetter, this is just an update
+            xml = self.request('/customers/edit', code=self._code,
+                    **self._dirty_data)
+
+        #: Reload the current customer object
+        for customer_xml in xml.getiterator(tag='customer'):
+            self._load_from_xml(customer_xml)
+
+        return self
+
+
+class Plan(CheddarObject):
+
+    __serialize__ = ['billing_frequency', 'trial_days',
+            'next_invoice_billing_datetime', 'billing_frequency_quantity',
+            'billing_frequency_unit', 'recurring_charge_amount', 'is_free',
+            'is_active', 'name', 'items', 'code']
+
+    @classmethod
+    def all(cls):
+        plans = []
+        try:
+            xml = cls.request('/plans/get')
+            for plan_xml in xml.getiterator(tag='plan'):
+                plans.append(Plan.from_xml(plan_xml))
+            return plans
+        except NotFound:
+            return []
+
+    @classmethod
+    def get(cls, code):
+        try:
+            xml = cls.request('/plans/get', code=code)
+            for plan_xml in xml.getiterator(tag='plan'):
+                return Plan.from_xml(plan_xml)
+        except NotFound:
+            return []
+
+    def save(self):
+        raise NotImplementedError
+
+    def delete(self):
+        self.request('/plans/delete', code=self._code)
+
+    @classmethod
+    def get_item():
+        pass
+
+
+class GatewayAccount(CheddarObject):
+
+    __serialize__ = ['gateway']
+
+
+class Subscription(CheddarObject):
+
+    __serialize__ = ['cc_last_four', 'cc_company', 'cc_state', 'cc_type',
+            'cc_city', 'cc_zip', 'cc_country', 'cc_first_name', 'cc_last_name',
+            'cc_email', 'cc_expiration_date', 'cc_address', 'created_datetime',
+            'canceled_datetime', 'gateway_account', 'cancel_type', 'plan',
+            'redirect_url']
+
+    def __init__(self, **kwargs):
+        #: Create an empty plan object because newly instantiated subscriptions
+        #: should have a plan
+        self.plans = []
+        self.plans.append(Plan())
+        super(Subscription, self).__init__(**kwargs)
+
+    def __getattr__(self, key):
+        #: Proxy plan_code to the plan object
+        if inflection.underscore(key) == 'plan_code':
+            return self.plan.code
+        return super(Subscription, self).__getattr__(key)
+
+    def __setattr__(self, key, value):
+        #: Intercept plan code and handle it appropriately
+        if inflection.underscore(key) == 'plan_code' and \
+                value is not self.plan.code:
+            self.plans.insert(0, Plan.get(value))
+            #: Get the plan_code from the current plan and add it to our
+            #: data to be saved
+            self._dirty_data['plan_code'] = self.plan.code
+        else:
+            super(Subscription, self).__setattr__(key, value)
+
+    @property
+    def plan(self):
+        return self.plans[0]
+
+    def save(self):
+        #: The CheddarGetter API does not do subscription creation directly, it
+        #: only creates subscriptions with customers. If this is a new
+        #: subscription save the parent customer object instead.
+        #: If this is a previously cancelled subscription we need to save the
+        #: customer and associated subscription to create a new subscription.
+        if self.is_new() or self.cancel_type == 'customer':
+            if self.customer._is_dirty():
+                self.customer.save()
+            return self
+
+        #: Do nothing if there is nothing to update
+        if not self._dirty_data:
+            return self
+
+        #: Convert keys to camel case
+        for key in copy.copy(self._dirty_data):
+            if '_' in key:
+                self._dirty_data[inflection.camelize(key, False)] = \
+                        self._dirty_data[key]
+                del self._dirty_data[key]
+
+        print self._dirty_data
+        exit()
+        xml = self.request('/customers/edit-subscription',
+                code=self.customer.code, **self._dirty_data)
+
+        #: Reload updated data from response
+        for subscription_xml in xml.getiterator(tag='subscription'):
+            self._load_from_xml(subscription_xml)
+            break
+        return self
+
+
+    def validate(self):
+        pass
+
+    def delete(self):
+        xml = self.request('/customers/cancel', code=self.customer.code)
+        for subscription_xml in xml.getiterator(tag='subscription'):
+            self._load_from_xml(subscription_xml)
+            break
+
+
+class Invoice(CheddarObject):
+    pass
+
+
+class Item(CheddarObject):
+
+    __serialize__ = ['name', 'quantity_included']
+
