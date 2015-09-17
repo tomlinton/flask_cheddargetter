@@ -430,8 +430,6 @@ class Subscription(CheddarObject):
                         self._dirty_data[key]
                 del self._dirty_data[key]
 
-        print self._dirty_data
-        exit()
         xml = self.request('/customers/edit-subscription',
                 code=self.customer.code, **self._dirty_data)
 
