@@ -16,7 +16,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from os import environ
 from lxml import etree
-from flask import app
 from flask import current_app
 
 from flask_cheddargetter.exceptions import BadRequest
@@ -42,13 +41,14 @@ class CheddarGetter(object):
 
     def init_app(self, app):
         app.config.setdefault('CHEDDAR_EMAIL',
-                environ.get('CHEDDAR_EMAIL', None))
+                              environ.get('CHEDDAR_EMAIL', None))
         app.config.setdefault('CHEDDAR_PASSWORD',
-                environ.get('CHEDDAR_PASSWORD', None))
+                              environ.get('CHEDDAR_PASSWORD', None))
         app.config.setdefault('CHEDDAR_PRODUCT',
-                environ.get('CHEDDAR_PRODUCT', None))
+                              environ.get('CHEDDAR_PRODUCT', None))
         app.config.setdefault('CHEDDAR_API_URL',
-                environ.get('CHEDDAR_API_URL', 'https://cheddargetter.com/xml'))
+                              environ.get('CHEDDAR_API_URL',
+                                          'https://cheddargetter.com/xml'))
 
         if not app.config['CHEDDAR_EMAIL']:
             raise Exception('CHEDDAR_EMAIL not configured')
@@ -57,17 +57,9 @@ class CheddarGetter(object):
         if not app.config['CHEDDAR_PRODUCT']:
             raise Exception('CHEDDAR_PRODUCT not configured')
 
-        if hasattr(app, 'teardown_appcontext'):
-            app.teardown_appcontext(self.teardown)
-        else:
-            app.teardown_request(self.teardown)
-
         if not hasattr(app, 'extensions'):
             app.extensions = {}
         app.extensions['cheddargetter'] = self
-
-    def teardown(self, exception):
-        return
 
 
 class CheddarObject(object):
@@ -76,7 +68,7 @@ class CheddarObject(object):
     def __init__(self, parent=None, **kwargs):
         self._product_code = current_app.config['CHEDDAR_PRODUCT']
         self._data = {}
-        self._dirty_data = {}
+        self._to_persist = {}
         self._id = None
         self._code = None
 
@@ -94,17 +86,19 @@ class CheddarObject(object):
             if self._id is None:
                 self._code = value
             else:
-                raise AttributeError(
-                        'Saved CheddarGetter object codes are immutable')
+                raise AttributeError('Saved CheddarGetter object codes '
+                                     'are immutable')
         elif key == 'id':
             raise AttributeError('CheddarGetter ID is immutable')
         elif isinstance(value, CheddarObject) or isinstance(value, list):
             self.__dict__[key] = value
         else:
-            if inflection.underscore(key) not in self._data or \
-                    value != self._data[inflection.underscore(key)]:
-                #: Add the change to the dirty data for save methods
-                self._dirty_data[inflection.underscore(key)] = value
+            #: Add the change to the dirty data for save methods. It looks like
+            #: data should only be set to dirty if it is different to what is
+            #: currently in the self._data array, but CheddarGetter requires
+            #: resubmission of the same information (e.g. cc_first_name in a
+            #: subscription edit).
+            self._to_persist[inflection.underscore(key)] = value
             self._data[inflection.underscore(key)] = value
 
     def __getattr__(self, key):
@@ -112,8 +106,8 @@ class CheddarObject(object):
             return self.__dict__['_{}'.format(key)]
         elif key[0] == '_' or key in self.__dict__:
             return self.__dict__[key]
-        elif key in self._dirty_data:
-            return self._dirty_data[inflection.underscore(key)]
+        elif key in self._to_persist:
+            return self._to_persist[inflection.underscore(key)]
         elif key in self._data:
             return self._data[inflection.underscore(key)]
         else:
@@ -159,7 +153,7 @@ class CheddarObject(object):
                     #: Single object
                     try:
                         cls = getattr(sys.modules[__name__],
-                                    inflection.camelize(child.tag))
+                                      inflection.camelize(child.tag))
                         setattr(self, inflection.underscore(child.tag),
                                 cls.from_xml(child, parent=self))
                     except AttributeError:
@@ -171,9 +165,9 @@ class CheddarObject(object):
                     for item_xml in child.getchildren():
                         try:
                             cls = getattr(sys.modules[__name__],
-                                    inflection.camelize(item_xml.tag))
-                            getattr(self, child.tag).append(cls.from_xml(
-                                item_xml, parent=self))
+                                          inflection.camelize(item_xml.tag))
+                            attr = getattr(self, child.tag)
+                            attr.append(cls.from_xml(item_xml, parent=self))
                         except AttributeError:
                             #: Give up, remaining items are all the same and
                             #: there is no class for them
@@ -191,10 +185,10 @@ class CheddarObject(object):
             self._data[key] = value
 
         #: Reset dirty data because all data should now be clean
-        self._dirty_data = {}
+        self._to_persist = {}
 
     def _is_dirty(self):
-        return len (self._dirty_data) > 0
+        return len(self._to_persist) > 0
 
     @classmethod
     def from_xml(cls, xml, **kwargs):
@@ -207,8 +201,8 @@ class CheddarObject(object):
     def request(cls, path, code=None, is_new=False, **kwargs):
         #: Build the request URL
         url = current_app.config.get('CHEDDAR_API_URL') + path + \
-                '/productCode/{}'.format(
-                        current_app.config.get('CHEDDAR_PRODUCT'))
+                '/productCode/{}'
+        url = url.format(current_app.config.get('CHEDDAR_PRODUCT'))
         if code is not None and not is_new:
             url += '/code/{}'.format(code)
         elif is_new:
@@ -220,37 +214,35 @@ class CheddarObject(object):
                 kwargs[inflection.camelize(key, False)] = kwargs[key]
                 del kwargs[key]
 
-        print url
-        print kwargs
-
         #: Execute the request
         client = requests.Session()
         client.auth = (current_app.config.get('CHEDDAR_EMAIL'),
-            current_app.config.get('CHEDDAR_PASSWORD'))
+                       current_app.config.get('CHEDDAR_PASSWORD'))
         response = client.post(url, data=kwargs)
 
         try:
-            content =  etree.fromstring(response.content)
+            content = etree.fromstring(response.content)
         except:
             raise UnexpectedResponse('CheddarGetter sent Invalid XML',
-                    response.content)
+                                     response.content)
 
-        if response.status_code >= 400 or content.tag == 'error':
-            if response.status_code == 400:
-                raise BadRequest, content.text
-            if response.status_code == 412:
-                raise BadRequest, '{}: {}'.format(content.text,
-                        content.get('auxCode'))
-            elif response.status_code == 404:
-                raise NotFound, content.text
-            elif response.status_code == '422':
-                raise GatewayFailure, content.text
-            elif response.status_code == '502':
-                raise GatewayConnectionError, content.text
+        code_exception_map = {
+                400: BadRequest,
+                404: NotFound,
+                412: BadRequest,
+                422: GatewayFailure,
+                500: GatewayConnectionError
+        }
 
-        response.close()
+        if response.status_code in code_exception_map:
+            exception = code_exception_map[response.status_code]
+            raise exception(content.text, content.get('auxCode', None))
+        elif response.status_code > 400 or content.tag == 'error':
+            raise UnexpectedResponse('Unknown error code',
+                                     content.get('auxCode', None))
 
         return content
+
 
 class Customer(CheddarObject):
 
@@ -263,7 +255,7 @@ class Customer(CheddarObject):
         super(Customer, self).__init__(**kwargs)
 
     @classmethod
-    def all():
+    def all(cls, **kwargs):
         try:
             customers = []
             xml = cls.request('/customers/get', **kwargs)
@@ -309,18 +301,18 @@ class Customer(CheddarObject):
                                'return_url', 'cancel_url', 'method',
                                'plan_code']
         for key in subscription_fields:
-            if key in self.subscription._dirty_data:
-                self._dirty_data['subscription[%s]' % key] = \
+            if key in self.subscription._to_persist:
+                self._to_persist['subscription[%s]' % key] = \
                         getattr(self.subscription, key)
 
         if self.is_new():
             #: Object doesn't exist in Cheddargetter, create it
-           xml = self.request('/customers/new', code=self._code,
-                    is_new=True, **self._dirty_data)
+            xml = self.request('/customers/new', code=self._code,
+                               is_new=True, **self._to_persist)
         else:
             #: Object exists in CheddarGetter, this is just an update
             xml = self.request('/customers/edit', code=self._code,
-                    **self._dirty_data)
+                               **self._to_persist)
 
         #: Reload the current customer object
         for customer_xml in xml.getiterator(tag='customer'):
@@ -332,9 +324,10 @@ class Customer(CheddarObject):
 class Plan(CheddarObject):
 
     __serialize__ = ['billing_frequency', 'trial_days',
-            'next_invoice_billing_datetime', 'billing_frequency_quantity',
-            'billing_frequency_unit', 'recurring_charge_amount', 'is_free',
-            'is_active', 'name', 'items', 'code']
+                     'next_invoice_billing_datetime',
+                     'billing_frequency_quantity', 'billing_frequency_unit',
+                     'recurring_charge_amount', 'is_free', 'is_active', 'name',
+                     'items', 'code']
 
     @classmethod
     def all(cls):
@@ -375,10 +368,10 @@ class GatewayAccount(CheddarObject):
 class Subscription(CheddarObject):
 
     __serialize__ = ['cc_last_four', 'cc_company', 'cc_state', 'cc_type',
-            'cc_city', 'cc_zip', 'cc_country', 'cc_first_name', 'cc_last_name',
-            'cc_email', 'cc_expiration_date', 'cc_address', 'created_datetime',
-            'canceled_datetime', 'gateway_account', 'cancel_type', 'plan',
-            'redirect_url']
+                     'cc_city', 'cc_zip', 'cc_country', 'cc_first_name',
+                     'cc_last_name', 'cc_email', 'cc_expiration_date',
+                     'cc_address', 'created_datetime', 'canceled_datetime',
+                     'gateway_account', 'cancel_type', 'plan', 'redirect_url']
 
     def __init__(self, **kwargs):
         #: Create an empty plan object because newly instantiated subscriptions
@@ -400,7 +393,7 @@ class Subscription(CheddarObject):
             self.plans.insert(0, Plan.get(value))
             #: Get the plan_code from the current plan and add it to our
             #: data to be saved
-            self._dirty_data['plan_code'] = self.plan.code
+            self._to_persist['plan_code'] = self.plan.code
         else:
             super(Subscription, self).__setattr__(key, value)
 
@@ -420,18 +413,18 @@ class Subscription(CheddarObject):
             return self
 
         #: Do nothing if there is nothing to update
-        if not self._dirty_data:
+        if not self._to_persist:
             return self
 
         #: Convert keys to camel case
-        for key in copy.copy(self._dirty_data):
+        for key in copy.copy(self._to_persist):
             if '_' in key:
-                self._dirty_data[inflection.camelize(key, False)] = \
-                        self._dirty_data[key]
-                del self._dirty_data[key]
+                self._to_persist[inflection.camelize(key, False)] = \
+                        self._to_persist[key]
+                del self._to_persist[key]
 
         xml = self.request('/customers/edit-subscription',
-                code=self.customer.code, **self._dirty_data)
+                           code=self.customer.code, **self._to_persist)
 
         #: Reload updated data from response
         for subscription_xml in xml.getiterator(tag='subscription'):

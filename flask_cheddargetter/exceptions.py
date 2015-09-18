@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 
 class CheddarException(Exception):
-    pass
+
+    def __init__(self, message, aux_code):
+        self.message = message
+        self.aux_code = aux_code
 
 
 class NotFound(CheddarException):
