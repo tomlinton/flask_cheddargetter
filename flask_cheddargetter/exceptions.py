@@ -2,7 +2,7 @@
 
 class CheddarException(Exception):
 
-    def __init__(self, message, aux_code):
+    def __init__(self, message, aux_code=None):
         self.message = message
         self.aux_code = aux_code
 
