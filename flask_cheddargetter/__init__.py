@@ -240,12 +240,20 @@ class CheddarObject(object):
                 500: GatewayConnectionError
         }
 
-        if response.status_code in code_exception_map:
-            exception = code_exception_map[response.status_code]
-            raise exception(content.text, content.get('auxCode', None))
-        elif response.status_code > 400 or content.tag == 'error':
-            raise UnexpectedResponse('Unknown error code',
-                                     content.get('auxCode', None))
+        if response.status_code > 400 or content.tag == 'error':
+            if response.status_code in code_exception_map:
+                exception = code_exception_map[response.status_code]
+            else:
+                exception = UnexpectedResponse
+            #: If the customer didn't exist in CheddarGetter the error will be
+            #: the only thing returned. If the customer did exist the error
+            #: will be embedded in the customer object
+            error = content if content.tag == 'error' else \
+                    content.find('.//error')
+            raise exception(error.get('id', None),
+                            error.get('code', None),
+                            error.text,
+                            error.get('auxCode', None))
 
         return content
 
