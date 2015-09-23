@@ -198,14 +198,20 @@ class CheddarObject(object):
         return new
 
     @classmethod
-    def request(cls, path, code=None, is_new=False, **kwargs):
+    def build_url(cls, path, code=None, is_new=False):
         #: Build the request URL
         url = current_app.config.get('CHEDDAR_API_URL') + path + \
                 '/productCode/{}'
         url = url.format(current_app.config.get('CHEDDAR_PRODUCT'))
         if code is not None and not is_new:
             url += '/code/{}'.format(code)
-        elif is_new:
+        return url
+
+    @classmethod
+    def request(cls, path, code=None, is_new=False, **kwargs):
+
+        url = cls.build_url(path, code, is_new)
+        if is_new:
             kwargs['code'] = code
 
         #: Set keys to Zend convention
