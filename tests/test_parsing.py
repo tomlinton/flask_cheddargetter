@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import arrow
 import responses
 from lxml import etree
 
@@ -77,7 +78,8 @@ class ParsingTests(TestBase):
         assert plan.setup_charge_amount == 0.0
         assert plan.billing_frequency_per == 'month'
         assert plan.trial_days == 0
-        assert plan.created_datetime == '2011-01-07T20:46:43+00:00'
+        assert plan.created_datetime == \
+                arrow.get('2011-01-07T20:46:43+00:00').datetime
         assert plan.recurring_charge_code == 'FREE_MONTHLY_RECURRING'
         assert plan.initial_bill_count == 1
         assert plan.description == 'A free monthly plan'
@@ -97,7 +99,8 @@ class ParsingTests(TestBase):
         assert plan.setup_charge_amount == 0.0
         assert plan.billing_frequency_per == 'month'
         assert plan.trial_days == 0
-        assert plan.created_datetime == '2011-01-07T21:05:42+00:00'
+        assert plan.created_datetime == \
+                arrow.get('2011-01-07T21:05:42+00:00').datetime
         assert plan.recurring_charge_code == 'PAID_MONTHLY_RECURRING'
         assert plan.initial_bill_count == 1
         assert plan.description == None
@@ -126,7 +129,8 @@ class ParsingTests(TestBase):
         assert plan.setup_charge_amount == 0.0
         assert plan.billing_frequency_per == 'month'
         assert plan.trial_days == 0
-        assert plan.created_datetime == '2011-01-07T20:46:43+00:00'
+        assert plan.created_datetime == \
+                arrow.get('2011-01-07T20:46:43+00:00').datetime
         assert plan.recurring_charge_code == 'FREE_MONTHLY_RECURRING'
         assert plan.initial_bill_count == 1
         assert plan.description == 'A free monthly plan'
@@ -136,14 +140,16 @@ class ParsingTests(TestBase):
         assert item.quantity_included == 0
         assert item.is_periodic == 0
         assert item.overage_amount == 0.00
-        assert item.created_datetime == '2011-01-10T22:40:34+00:00'
+        assert item.created_datetime == \
+                arrow.get('2011-01-10T22:40:34+00:00').datetime
         item = plan.items[1]
         assert item.id == 'd19ef2f0-6e5a-102e-b098-40402145ee8b'
         assert item.code == 'ONCE_ITEM'
         assert item.quantity_included == 0
         assert item.is_periodic == 0
         assert item.overage_amount == 0.00
-        assert item.created_datetime == '2011-01-10T22:40:34+00:00'
+        assert item.created_datetime == \
+                arrow.get('2011-01-10T22:40:34+00:00').datetime
 
         plan = plans[1]
         assert plan.id == 'd19974a6-6e5a-102e-b098-40402145ee8b'
@@ -160,7 +166,8 @@ class ParsingTests(TestBase):
         assert plan.setup_charge_amount == 0.0
         assert plan.billing_frequency_per == 'month'
         assert plan.trial_days == 0
-        assert plan.created_datetime == '2011-01-10T22:40:34+00:00'
+        assert plan.created_datetime == \
+                arrow.get('2011-01-10T22:40:34+00:00').datetime
         assert plan.recurring_charge_code == 'TRACKED_MONTHLY_RECURRING'
         assert plan.initial_bill_count == 1
         assert plan.description == None
@@ -171,14 +178,16 @@ class ParsingTests(TestBase):
         assert item.quantity_included == 2
         assert item.is_periodic == 1
         assert item.overage_amount == 10.00
-        assert item.created_datetime == '2011-01-10T22:40:34+00:00'
+        assert item.created_datetime == \
+                arrow.get('2011-01-10T22:40:34+00:00').datetime
         item = plan.items[1]
         assert item.id == 'd19ef2f0-6e5a-102e-b098-40402145ee8b'
         assert item.code == 'ONCE_ITEM'
         assert item.quantity_included == 0
         assert item.is_periodic == 0
         assert item.overage_amount == 10.00
-        assert item.created_datetime == '2011-01-10T22:40:34+00:00'
+        assert item.created_datetime == \
+                arrow.get('2011-01-10T22:40:34+00:00').datetime
 
         plan = plans[2]
         assert plan.id == '11af9cfc-6bf2-102e-b098-40402145ee8b'
@@ -195,7 +204,8 @@ class ParsingTests(TestBase):
         assert plan.setup_charge_amount == 0.0
         assert plan.billing_frequency_per == 'month'
         assert plan.trial_days == 0
-        assert plan.created_datetime == '2011-01-07T21:05:42+00:00'
+        assert plan.created_datetime == \
+                arrow.get('2011-01-07T21:05:42+00:00').datetime
         assert plan.recurring_charge_code == 'PAID_MONTHLY_RECURRING'
         assert plan.initial_bill_count == 1
         assert plan.description == None
@@ -206,14 +216,16 @@ class ParsingTests(TestBase):
         assert item.quantity_included == 0
         assert item.is_periodic == 0
         assert item.overage_amount == 0.00
-        assert item.created_datetime == '2011-01-10T22:40:34+00:00'
+        assert item.created_datetime == \
+                arrow.get('2011-01-10T22:40:34+00:00').datetime
         item = plan.items[1]
         assert item.id == 'd19ef2f0-6e5a-102e-b098-40402145ee8b'
         assert item.code == 'ONCE_ITEM'
         assert item.quantity_included == 0
         assert item.is_periodic == 0
         assert item.overage_amount == 0.00
-        assert item.created_datetime == '2011-01-10T22:40:34+00:00'
+        assert item.created_datetime == \
+                arrow.get('2011-01-10T22:40:34+00:00').datetime
 
     @responses.activate
     def test_customer_without_items_parsing(self):
@@ -241,8 +253,10 @@ class ParsingTests(TestBase):
         assert customer.is_vat_exempt == 0
         assert customer.company == None
         assert customer.gateway_token == None
-        assert customer.modified_datetime == '2011-01-10T05:45:51+00:00'
-        assert customer.created_datetime == '2011-01-10T05:45:51+00:00'
+        assert customer.modified_datetime == \
+                arrow.get('2011-01-10T05:45:51+00:00').datetime
+        assert customer.created_datetime == \
+                arrow.get('2011-01-10T05:45:51+00:00').datetime
         assert customer.referer == None
         assert customer.referer_host == None
         assert customer.notes == None
@@ -272,7 +286,8 @@ class ParsingTests(TestBase):
         assert subscription.cc_last_four == None
         assert subscription.cc_company == None
         assert subscription.cc_state == None
-        assert subscription.created_datetime == '2011-01-10T05:45:51+00:00'
+        assert subscription.created_datetime == \
+                arrow.get('2011-01-10T05:45:51+00:00').datetime
         assert subscription.canceled_datetime == None
         assert subscription.cc_type == None
         assert subscription.cc_city == None
@@ -315,7 +330,8 @@ class ParsingTests(TestBase):
         assert plan.setup_charge_amount == 0.0
         assert plan.billing_frequency_per == 'month'
         assert plan.trial_days == 0
-        assert plan.created_datetime == '2011-01-07T20:46:43+00:00'
+        assert plan.created_datetime == \
+                arrow.get('2011-01-07T20:46:43+00:00').datetime
         assert plan.recurring_charge_code == 'FREE_MONTHLY_RECURRING'
         assert plan.initial_bill_count == 1
         assert plan.description == 'A free monthly plan'
@@ -333,9 +349,11 @@ class ParsingTests(TestBase):
         assert invoice.id == '106ed222-6dcd-102e-b098-40402145ee8b'
         assert invoice.code == None
         assert invoice.paid_transaction_id == None
-        assert invoice.created_datetime == '2011-01-10T05:45:51+00:00'
+        assert invoice.created_datetime == \
+                arrow.get('2011-01-10T05:45:51+00:00').datetime
         assert invoice.number == 1
-        assert invoice.billing_datetime == '2011-02-10T05:45:51+00:00'
+        assert invoice.billing_datetime == \
+                arrow.get('2011-02-10T05:45:51+00:00').datetime
         assert invoice.vat_rate == None
         assert invoice.type == 'subscription'
         assert invoice.charges == []

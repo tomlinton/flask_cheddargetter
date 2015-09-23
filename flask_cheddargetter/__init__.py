@@ -11,6 +11,7 @@ management. It is heavily inspired by pycheddar:
 import re
 import sys
 import copy
+import arrow
 import inflection
 import requests
 from requests.adapters import HTTPAdapter
@@ -172,14 +173,21 @@ class CheddarObject(object):
                             break
                     continue
 
+            key = inflection.underscore(child.tag)
             value = child.text
-            #: Parse numeric types
             if value is not None:
+                #: Parse numeric types
                 if re.match(r'^[\d]+$', value):
                     value = int(value)
                 elif re.match(r'^[\d.]+$', value):
                     value = float(value)
-            key = inflection.underscore(child.tag)
+                #: Parse datetimes, use naive detection of key to avoid trying
+                #: to parse every field
+                elif 'datetime' in key:
+                    try:
+                        value = arrow.get(value).datetime
+                    except Exception:
+                        pass
             self._data[key] = value
 
         #: Reset dirty data because all data should now be clean
