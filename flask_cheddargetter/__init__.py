@@ -93,12 +93,10 @@ class CheddarObject(object):
         elif isinstance(value, CheddarObject) or isinstance(value, list):
             self.__dict__[key] = value
         else:
-            #: Add the change to the dirty data for save methods. It looks like
-            #: data should only be set to dirty if it is different to what is
-            #: currently in the self._data array, but CheddarGetter requires
-            #: resubmission of the same information (e.g. cc_first_name in a
-            #: subscription edit).
-            self._to_persist[inflection.underscore(key)] = value
+            #: Add value to dictionary of attributes to save to CheddarGetter
+            if inflection.underscore(key) in self._data and \
+                    self._data[inflection.underscore(key)] != value:
+                self._to_persist[inflection.underscore(key)] = value
             self._data[inflection.underscore(key)] = value
 
     def __getattr__(self, key):
@@ -408,6 +406,12 @@ class Subscription(CheddarObject):
             #: Get the plan_code from the current plan and add it to our
             #: data to be saved
             self._to_persist['plan_code'] = self.plan.code
+        if inflection.underscore(key) in ['cc_first_name', 'cc_last_name',
+                                          'cc_number', 'cc_expiration',
+                                          'cc_card_code', 'method']:
+            #: Always persist these fields in case this is a subscription
+            #: change (plan or payment change)
+            self._to_persist[inflection.underscore(key)] = value
         else:
             super(Subscription, self).__setattr__(key, value)
 
