@@ -12,11 +12,13 @@ import re
 import sys
 import copy
 import arrow
-import inflection
 import requests
+import datetime
+import inflection
 from requests.adapters import HTTPAdapter
 from os import environ
 from lxml import etree
+from flask import request
 from flask import current_app
 
 from flask_cheddargetter.exceptions import BadRequest
@@ -50,6 +52,9 @@ class CheddarGetter(object):
         app.config.setdefault('CHEDDAR_API_URL',
                               environ.get('CHEDDAR_API_URL',
                                           'https://cheddargetter.com/xml'))
+        app.config.setdefault('CHEDDAR_MARKETING_COOKIE_NAME',
+                              environ.get('CHEDDAR_MARKETING_COOKIE_NAME',
+                                          None))
 
         if not app.config['CHEDDAR_EMAIL']:
             raise Exception('CHEDDAR_EMAIL not configured')
@@ -61,6 +66,65 @@ class CheddarGetter(object):
         if not hasattr(app, 'extensions'):
             app.extensions = {}
         app.extensions['cheddargetter'] = self
+
+        self.cookie_name = app.config['CHEDDAR_MARKETING_COOKIE_NAME']
+
+    def build_marketing_cookie(self):
+        if not self.cookie_name:
+            return False
+
+        utm_params = {
+            'utm_term': 'campaignTerm',
+            'utm_campaign': 'campaignName',
+            'utm_source': 'campaignSource',
+            'utm_medium': 'campaignMedium',
+            'utm_content': 'campaignContent'
+        }
+
+        if not request.cookies.get(self.cookie_name):
+            #: Marketing cookie was not set, set it
+            cookie = {}
+            cookie['firstContactDatetime'] = datetime.datetime.now().isoformat()
+            cookie['referer'] = request.environ.get('HTTP_REFERER', 'direct')
+            for utm_param, cg_param in utm_params.items():
+                cookie[cg_param] = request.environ.get(utm_param, None)
+            return cookie
+
+        elif request.cookies.get('__utmz', None):
+            #: We have a marketing cookie, refine with __utmz cookie
+            cookie = json.loads(request.cookies.get(self.cookie_name))
+
+            utmz_string = request.cookies.get('__utmz')
+            parsed_utmz_string = utmz_string.split('.')
+            #: Something is wrong, give up
+            if len(parsed_utmz_string) < 4:
+                return
+            #: Rejoin when src or cct might have a dot i.e. utmscr=example.com
+            parsed_utmz_string[4] = '.'.join(parsed_utmz_string[4:])
+
+            #pylint: disable=W0612
+            _domain_hash, _timestamp, _session_number, _campaign_number, \
+                    campaign_data = parsed_utmz_string
+
+            #: Extract campaign data
+            translations = {
+                'utmcsr': 'campaignSource',
+                'utmccn': 'campaignName',
+                'utmcmd': 'campaignMedium',
+                'utmctr': 'campaignTerm',
+                'utmcct': 'campaignContent'
+            }
+            for params in campaign_data.split('|'):
+                key, value = params.split('=')
+                if key in translations:
+                    cookie[translations[key]] = value
+
+            #: Override some fields if this is an AdWords lead
+            if 'gclid=' in campaign_data:
+                cookie['campaignSource'] = 'google'
+                cookie['campaignMedium'] = 'ppc'
+
+            return cookie
 
 
 class CheddarObject(object):
