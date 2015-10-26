@@ -327,6 +327,8 @@ class CheddarObject(object):
 
 class Customer(CheddarObject):
 
+    __serialize__ = ['id', 'first_name', 'last_name', 'email']
+
     def __init__(self, **kwargs):
         #: Add an empty subscription to the customer object because the
         #: CheddarGetter API creates a customer and subscription at the same
