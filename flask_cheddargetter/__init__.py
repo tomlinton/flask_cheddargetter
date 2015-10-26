@@ -150,7 +150,7 @@ class CheddarObject(object):
             self.__dict__[key] = value
         else:
             #: Add value to dictionary of attributes to save to CheddarGetter
-            if inflection.underscore(key) in self._data and \
+            if inflection.underscore(key) not in self._data or \
                     self._data[inflection.underscore(key)] != value:
                 self._to_persist[inflection.underscore(key)] = value
             self._data[inflection.underscore(key)] = value
