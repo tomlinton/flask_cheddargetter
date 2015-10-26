@@ -338,10 +338,24 @@ class Customer(CheddarObject):
         super(Customer, self).__init__(**kwargs)
 
     @classmethod
-    def all(cls, **kwargs):
+    def all(cls):
         try:
             customers = []
-            xml = cls.request('/customers/get', **kwargs)
+            xml = cls.request('/customers/get')
+            for customer_xml in xml.getiterator(tag='customer'):
+                customers.append(Customer.from_xml(customer_xml))
+            return customers
+        except NotFound:
+            return []
+
+    @classmethod
+    def list(cls):
+        """The list method of the CheddarGetter API returns a summary of each
+        customer rather than the complete history. This is useful because the
+        get method often is too large and is returned incomplete."""
+        try:
+            customers = []
+            xml = cls.request('/customers/list')
             for customer_xml in xml.getiterator(tag='customer'):
                 customers.append(Customer.from_xml(customer_xml))
             return customers
