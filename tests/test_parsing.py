@@ -11,6 +11,7 @@ from flask_cheddargetter import Plan
 from flask_cheddargetter import GatewayAccount
 from flask_cheddargetter.exceptions import BadRequest
 from flask_cheddargetter.exceptions import NotFound
+
 from . import TestBase
 
 
