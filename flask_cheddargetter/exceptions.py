@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
 
+
+class ValidationError(Exception):
+    pass
+
+
+class UnexpectedResponse(Exception):
+    pass
+
+
 class CheddarException(Exception):
 
     def __init__(self, error_id, code, message, aux_code=None):
@@ -17,18 +26,10 @@ class BadRequest(CheddarException):
     pass
 
 
-class UnexpectedResponse(CheddarException):
-    pass
-
-
 class GatewayFailure(CheddarException):
     pass
 
 
 class GatewayConnectionError(CheddarException):
-    pass
-
-
-class ValidationError(CheddarException):
     pass
 
