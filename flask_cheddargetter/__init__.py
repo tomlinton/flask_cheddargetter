@@ -49,25 +49,16 @@ class CheddarGetter(object):
                               environ.get('CHEDDAR_PASSWORD', None))
         app.config.setdefault('CHEDDAR_PRODUCT',
                               environ.get('CHEDDAR_PRODUCT', None))
-        app.config.setdefault('CHEDDAR_API_URL',
-                              environ.get('CHEDDAR_API_URL',
-                                          'https://cheddargetter.com/xml'))
         app.config.setdefault('CHEDDAR_MARKETING_COOKIE_NAME',
                               environ.get('CHEDDAR_MARKETING_COOKIE_NAME',
                                           None))
-
-        if not app.config['CHEDDAR_EMAIL']:
-            raise Exception('CHEDDAR_EMAIL not configured')
-        if not app.config['CHEDDAR_PASSWORD']:
-            raise Exception('CHEDDAR_PASSWORD not configured')
-        if not app.config['CHEDDAR_PRODUCT']:
-            raise Exception('CHEDDAR_PRODUCT not configured')
 
         if not hasattr(app, 'extensions'):
             app.extensions = {}
         app.extensions['cheddargetter'] = self
 
         self.cookie_name = app.config['CHEDDAR_MARKETING_COOKIE_NAME']
+        return app
 
     def build_marketing_cookie(self):
         if not self.cookie_name:
@@ -270,8 +261,7 @@ class CheddarObject(object):
     @classmethod
     def build_url(cls, path, code=None, is_new=False):
         #: Build the request URL
-        url = current_app.config.get('CHEDDAR_API_URL') + path + \
-                '/productCode/{}'
+        url = 'https://cheddargetter.com/xml' + path + '/productCode/{}'
         url = url.format(current_app.config.get('CHEDDAR_PRODUCT'))
         if code is not None and not is_new:
             url += '/code/{}'.format(code)
@@ -279,6 +269,13 @@ class CheddarObject(object):
 
     @classmethod
     def request(cls, path, code=None, is_new=False, **kwargs):
+
+        if not current_app.config['CHEDDAR_EMAIL']:
+            raise Exception('CHEDDAR_EMAIL not configured')
+        if not current_app.config['CHEDDAR_PASSWORD']:
+            raise Exception('CHEDDAR_PASSWORD not configured')
+        if not current_app.config['CHEDDAR_PRODUCT']:
+            raise Exception('CHEDDAR_PRODUCT not configured')
 
         url = cls.build_url(path, code, is_new)
         if is_new:
