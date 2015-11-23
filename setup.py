@@ -10,6 +10,6 @@ setup(name='flask_cheddargetter',
       author='Thomas Linton',
       author_email='tlinton@fastmail.fm',
       packages=['flask_cheddargetter'],
-      requires=['lxml', 'requests', 'inflection']
+      requires=['arrow', 'lxml', 'requests', 'inflection', 'simplejson']
 )
 

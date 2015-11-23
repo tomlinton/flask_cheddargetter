@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import os
 import arrow
 import responses
-from lxml import etree
 
-from flask_cheddargetter import CheddarObject
 from flask_cheddargetter import Customer
 from flask_cheddargetter import Plan
 from flask_cheddargetter import GatewayAccount
@@ -16,11 +13,6 @@ from . import TestBase
 
 
 class ParsingTests(TestBase):
-
-    def read_fixture(self, filename):
-        path = os.path.join(os.path.dirname(__file__), 'fixtures', filename)
-        f = open(path)
-        return f.read()
 
     @responses.activate
     def test_error_no_customer_parsing(self):
@@ -240,7 +232,7 @@ class ParsingTests(TestBase):
         assert len(customers) == 1
 
         customer = customers[0]
-        assert type(customer) == Customer
+        assert isinstance(customer, Customer)
 
         assert customer._to_persist == {}
         assert customer._product_code == 'Test'
@@ -249,7 +241,7 @@ class ParsingTests(TestBase):
         assert customer.id == '10681b62-6dcd-102e-b098-40402145ee8b'
         assert customer.first_name == 'Test'
         assert customer.last_name == 'User'
-        assert customer.email == 'garbage@saaspire.com'
+        assert customer.email == 'garbage@address.com'
         assert customer.vat_number == None
         assert customer.is_vat_exempt == 0
         assert customer.company == None
@@ -300,7 +292,7 @@ class ParsingTests(TestBase):
         assert subscription.cc_expiration_date == None
         assert subscription.gateway_token == None
 
-        assert type(subscription.gateway_account) == GatewayAccount
+        assert isinstance(subscription.gateway_account, GatewayAccount)
         #: TODO fix handling of id
         #: assert subscription.gateway_account.id == \
         #:         'f3fb7029-11f4-475f-ab8d-80f8771e26d0'

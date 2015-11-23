@@ -15,6 +15,7 @@ import arrow
 import requests
 import datetime
 import inflection
+import simplejson as json
 from requests.adapters import HTTPAdapter
 from os import environ
 from lxml import etree
@@ -73,7 +74,7 @@ class CheddarGetter(object):
         }
 
         if not request.cookies.get(self.cookie_name):
-            #: Marketing cookie was not set, set it
+            # Marketing cookie was not set, set it
             cookie = {}
             cookie['firstContactDatetime'] = datetime.datetime.now().isoformat()
             cookie['referer'] = request.environ.get('HTTP_REFERER', 'direct')
@@ -82,22 +83,22 @@ class CheddarGetter(object):
             return cookie
 
         elif request.cookies.get('__utmz', None):
-            #: We have a marketing cookie, refine with __utmz cookie
+            # We have a marketing cookie, refine with __utmz cookie
             cookie = json.loads(request.cookies.get(self.cookie_name))
 
             utmz_string = request.cookies.get('__utmz')
             parsed_utmz_string = utmz_string.split('.')
-            #: Something is wrong, give up
+            # Something is wrong, give up
             if len(parsed_utmz_string) < 4:
                 return
-            #: Rejoin when src or cct might have a dot i.e. utmscr=example.com
+            # Rejoin when src or cct might have a dot i.e. utmscr=example.com
             parsed_utmz_string[4] = '.'.join(parsed_utmz_string[4:])
 
             #pylint: disable=W0612
             _domain_hash, _timestamp, _session_number, _campaign_number, \
                     campaign_data = parsed_utmz_string
 
-            #: Extract campaign data
+            # Extract campaign data
             translations = {
                 'utmcsr': 'campaignSource',
                 'utmccn': 'campaignName',
@@ -110,7 +111,7 @@ class CheddarGetter(object):
                 if key in translations:
                     cookie[translations[key]] = value
 
-            #: Override some fields if this is an AdWords lead
+            # Override some fields if this is an AdWords lead
             if 'gclid=' in campaign_data:
                 cookie['campaignSource'] = 'google'
                 cookie['campaignMedium'] = 'ppc'
@@ -135,7 +136,7 @@ class CheddarObject(object):
             setattr(self, i, kwargs[i])
 
     def __setattr__(self, key, value):
-        #: If modifying a private attribute of the class then set it directly
+        # If modifying a private attribute of the class then set it directly
         if key[0] == '_':
             self.__dict__[key] = value
         elif key == 'code':
@@ -149,7 +150,7 @@ class CheddarObject(object):
         elif isinstance(value, CheddarObject) or isinstance(value, list):
             self.__dict__[key] = value
         else:
-            #: Add value to dictionary of attributes to save to CheddarGetter
+            # Add value to dictionary of attributes to save to CheddarGetter
             if inflection.underscore(key) not in self._data or \
                     self._data[inflection.underscore(key)] != value:
                 self._to_persist[inflection.underscore(key)] = value
@@ -199,45 +200,46 @@ class CheddarObject(object):
 
         for child in xml.getchildren():
             if len(child.getchildren()) > 0:
-                #: Determine if children are all of the same type, e.g. Items
-                #: has many Item children, or if the current child should be
-                #: instantiated as a class
+                # Determine if children are all of the same type, e.g. Items
+                # has many Item children, or if the current child should be
+                # instantiated as a class
                 is_list = len(set([i.tag for i in child.getchildren()])) == 1
                 if not is_list:
-                    #: Single object
+                    # Single object
                     try:
                         cls = getattr(sys.modules[__name__],
                                       inflection.camelize(child.tag))
                         setattr(self, inflection.underscore(child.tag),
                                 cls.from_xml(child, parent=self))
                     except AttributeError:
-                        #: No class for this object, ignore it
+                        # No class for this object, ignore it
                         pass
                     continue
                 else:
-                    setattr(self, child.tag, [])
+                    setattr(self, inflection.underscore(child.tag), [])
                     for item_xml in child.getchildren():
                         try:
                             cls = getattr(sys.modules[__name__],
                                           inflection.camelize(item_xml.tag))
-                            attr = getattr(self, child.tag)
+                            attr = getattr(self,
+                                           inflection.underscore(child.tag))
                             attr.append(cls.from_xml(item_xml, parent=self))
                         except AttributeError:
-                            #: Give up, remaining items are all the same and
-                            #: there is no class for them
+                            # Give up, remaining items are all the same and
+                            # there is no class for them
                             break
                     continue
 
             key = inflection.underscore(child.tag)
             value = child.text
             if value is not None:
-                #: Parse numeric types
+                # Parse numeric types
                 if re.match(r'^[\d]+$', value):
                     value = int(value)
                 elif re.match(r'^[\d.]+$', value):
                     value = float(value)
-                #: Parse datetimes, use naive detection of key to avoid trying
-                #: to parse every field
+                # Parse datetimes, use naive detection of key to avoid trying
+                # to parse every field
                 elif 'datetime' in key:
                     try:
                         value = arrow.get(value).datetime
@@ -245,7 +247,7 @@ class CheddarObject(object):
                         pass
             self._data[key] = value
 
-        #: Reset dirty data because all data should now be clean
+        # Reset dirty data because all data should now be clean
         self._to_persist = {}
 
     def _is_dirty(self):
@@ -260,7 +262,7 @@ class CheddarObject(object):
 
     @classmethod
     def build_url(cls, path, code=None, is_new=False):
-        #: Build the request URL
+        # Build the request URL
         url = 'https://cheddargetter.com/xml' + path + '/productCode/{}'
         url = url.format(current_app.config.get('CHEDDAR_PRODUCT'))
         if code is not None and not is_new:
@@ -281,13 +283,15 @@ class CheddarObject(object):
         if is_new:
             kwargs['code'] = code
 
-        #: Set keys to Zend convention
+        # Set keys to Zend convention
         for key in copy.copy(kwargs):
-            if '_' in key:
+            # Handle metaData keys separately to avoid camel casing user
+            # defined name attribute
+            if '_' in key and not key.startswith('metaData'):
                 kwargs[inflection.camelize(key, False)] = kwargs[key]
                 del kwargs[key]
 
-        #: Execute the request
+        # Execute the request
         client = requests.Session()
         client.auth = (current_app.config.get('CHEDDAR_EMAIL'),
                        current_app.config.get('CHEDDAR_PASSWORD'))
@@ -300,11 +304,11 @@ class CheddarObject(object):
                                      response.content)
 
         code_exception_map = {
-                400: BadRequest,
-                404: NotFound,
-                412: BadRequest,
-                422: GatewayFailure,
-                500: GatewayConnectionError
+            400: BadRequest,
+            404: NotFound,
+            412: BadRequest,
+            422: GatewayFailure,
+            500: GatewayConnectionError
         }
 
         if response.status_code > 400 or content.tag == 'error':
@@ -312,9 +316,9 @@ class CheddarObject(object):
                 exception = code_exception_map[response.status_code]
             else:
                 exception = UnexpectedResponse
-            #: If the customer didn't exist in CheddarGetter the error will be
-            #: the only thing returned. If the customer did exist the error
-            #: will be embedded in the customer object
+            # If the customer didn't exist in CheddarGetter the error will be
+            # the only thing returned. If the customer did exist the error
+            # will be embedded in the customer object
             error = content if content.tag == 'error' else \
                     content.find('.//error')
             raise exception(error.get('id', None),
@@ -327,14 +331,20 @@ class CheddarObject(object):
 
 class Customer(CheddarObject):
 
-    __serialize__ = ['id', 'first_name', 'last_name', 'email']
+    __serialize__ = [
+        'id',
+        'first_name',
+        'last_name',
+        'email'
+    ]
 
     def __init__(self, **kwargs):
-        #: Add an empty subscription to the customer object because the
-        #: CheddarGetter API creates a customer and subscription at the same
-        #: time
+        # Add an empty subscription to the customer object because the
+        # CheddarGetter API creates a customer and subscription at the same
+        # time
         self.subscriptions = []
         self.subscriptions.append(Subscription(parent=self))
+        self.meta_data = []
         super(Customer, self).__init__(**kwargs)
 
     @classmethod
@@ -372,59 +382,78 @@ class Customer(CheddarObject):
     def subscription(self):
         return self.subscriptions[0]
 
-    def validate(self):
-        # Make sure this object has a code
-        if not self._code:
-            raise ValidationError, 'No code has been set.'
-
-        # The subscription object must also validate
-        self.subscription.validate()
-
-        # The customer object must have all required keys
-        required_keys = ['first_name', 'last_name', 'email']
-        for i in required_keys:
-            if i not in self:
-                raise ValidationError, 'Missing required key: "%s"' % i
-
-        return True
-
     def save(self):
-        self.validate()
-
-        #: Collect all the keys from the subscription and modify them to
-        #: CheddarGetter format for submission with the customer
-        subscription_fields = ['cc_first_name', 'cc_last_name', 'cc_number',
-                               'cc_expiration', 'cc_card_code', 'cc_zip',
-                               'return_url', 'cancel_url', 'method',
-                               'plan_code']
+        # Collect all the keys from the subscription and modify them to
+        # CheddarGetter format for submission with the customer
+        subscription_fields = [
+            'cc_first_name',
+            'cc_last_name',
+            'cc_number',
+            'cc_expiration',
+            'cc_card_code',
+            'cc_zip',
+            'return_url',
+            'cancel_url',
+            'method',
+            'plan_code'
+        ]
         for key in subscription_fields:
             if key in self.subscription._to_persist:
                 self._to_persist['subscription[%s]' % key] = \
                         getattr(self.subscription, key)
 
+        for datum in self.meta_data:
+            if 'value' in datum._to_persist:
+                self._to_persist['metaData[%s]' % datum.name] = datum.value
+
+        if not self._to_persist:
+            return
+
         if self.is_new():
-            #: Object doesn't exist in Cheddargetter, create it
+            # Object doesn't exist in Cheddargetter, create it
             xml = self.request('/customers/new', code=self._code,
                                is_new=True, **self._to_persist)
         else:
-            #: Object exists in CheddarGetter, this is just an update
+            # Object exists in CheddarGetter, this is just an update
             xml = self.request('/customers/edit', code=self._code,
                                **self._to_persist)
 
-        #: Reload the current customer object
+        # Reload the current customer object
         for customer_xml in xml.getiterator(tag='customer'):
             self._load_from_xml(customer_xml)
 
+        # We've saved successfully, we don't want to persist the changes again
+        self._to_persist = {}
+        self.subscription._to_persist = {}
+        for datum in self.meta_data:
+            datum._to_persist = {}
+
         return self
+
+    def update_metadata(self, name, value):
+        for datum in self.meta_data:
+            if datum.name == name:
+                datum.value = value
+                return
+        # No existing metadata with that name, create a new one
+        self.meta_data.append(MetaDatum(name=name, value=value))
 
 
 class Plan(CheddarObject):
 
-    __serialize__ = ['billing_frequency', 'trial_days',
-                     'next_invoice_billing_datetime',
-                     'billing_frequency_quantity', 'billing_frequency_unit',
-                     'recurring_charge_amount', 'is_free', 'is_active', 'name',
-                     'items', 'code']
+    __serialize__ = [
+        'billing_frequency',
+        'trial_days',
+        'next_invoice_billing_datetime',
+        'billing_frequency_quantity',
+        'billing_frequency_unit',
+        'recurring_charge_amount',
+        'is_free',
+        'is_active',
+        'name',
+        'items',
+        'code'
+    ]
 
     @classmethod
     def all(cls):
@@ -459,43 +488,65 @@ class Plan(CheddarObject):
 
 class GatewayAccount(CheddarObject):
 
-    __serialize__ = ['gateway']
+    __serialize__ = [
+        'gateway'
+    ]
 
 
 class Subscription(CheddarObject):
 
-    __serialize__ = ['cc_last_four', 'cc_company', 'cc_state', 'cc_type',
-                     'cc_city', 'cc_zip', 'cc_country', 'cc_first_name',
-                     'cc_last_name', 'cc_email', 'cc_expiration_date',
-                     'cc_address', 'created_datetime', 'canceled_datetime',
-                     'gateway_account', 'cancel_type', 'plan', 'redirect_url']
+    __serialize__ = [
+        'cc_last_four',
+        'cc_company',
+        'cc_state',
+        'cc_type',
+        'cc_city',
+        'cc_zip',
+        'cc_country',
+        'cc_first_name',
+        'cc_last_name',
+        'cc_email',
+        'cc_expiration_date',
+        'cc_address',
+        'created_datetime',
+        'canceled_datetime',
+        'gateway_account',
+        'cancel_type',
+        'plan',
+        'redirect_url'
+    ]
 
     def __init__(self, **kwargs):
-        #: Create an empty plan object because newly instantiated subscriptions
-        #: should have a plan
+        # Create an empty plan object because newly instantiated subscriptions
+        # should have a plan
         self.plans = []
         self.plans.append(Plan())
         super(Subscription, self).__init__(**kwargs)
 
     def __getattr__(self, key):
-        #: Proxy plan_code to the plan object
+        # Proxy plan_code to the plan object
         if inflection.underscore(key) == 'plan_code':
             return self.plan.code
         return super(Subscription, self).__getattr__(key)
 
     def __setattr__(self, key, value):
-        #: Intercept plan code and handle it appropriately
+        # Intercept plan code and handle it appropriately
         if inflection.underscore(key) == 'plan_code' and \
                 value is not self.plan.code:
+            previous_plan = self.plans.pop(0)
+            # Add the new plan to the subscriptions plans
             self.plans.insert(0, Plan.get(value))
-            #: Get the plan_code from the current plan and add it to our
-            #: data to be saved
-            self._to_persist['plan_code'] = self.plan.code
+
+            if previous_plan and value != previous_plan.code:
+                # Get the plan_code from the current plan and add it to our
+                # data to be saved if this is a plan change
+                self._to_persist['plan_code'] = self.plan.code
+
         if inflection.underscore(key) in ['cc_first_name', 'cc_last_name',
                                           'cc_number', 'cc_expiration',
                                           'cc_card_code', 'method']:
-            #: Always persist these fields in case this is a subscription
-            #: change (plan or payment change)
+            # Always persist these fields in case this is a subscription
+            # change (plan or payment change)
             self._to_persist[inflection.underscore(key)] = value
         else:
             super(Subscription, self).__setattr__(key, value)
@@ -505,21 +556,27 @@ class Subscription(CheddarObject):
         return self.plans[0]
 
     def save(self):
-        #: The CheddarGetter API does not do subscription creation directly, it
-        #: only creates subscriptions with customers. If this is a new
-        #: subscription save the parent customer object instead.
-        #: If this is a previously cancelled subscription we need to save the
-        #: customer and associated subscription to create a new subscription.
+        """Save the subscription to CheddarGetter. The CheddarGetter API does
+        not do allow the creation of a subscription unless a customer is created
+        at the same time. Calling this save method will save the parent
+        customer if this subscription is new (completely new or a reactivation)
+        and in other cases the subscription is being edited."""
+        # If this is a new subscription save the parent customer object instead
+        # OR if this is a previously cancelled subscription we need to save the
+        # customer and associated subscription to create a new subscription.
         if self.is_new() or self.cancel_type == 'customer':
             if self.customer._is_dirty():
                 self.customer.save()
             return self
 
-        #: Do nothing if there is nothing to update
+        # This is not a new customer or a reactivate of a cancelled
+        # subscription so it must be a subscription modification
+
+        # Do nothing if there is nothing to update
         if not self._to_persist:
             return self
 
-        #: Convert keys to camel case
+        # Convert keys to camel case
         for key in copy.copy(self._to_persist):
             if '_' in key:
                 self._to_persist[inflection.camelize(key, False)] = \
@@ -529,15 +586,11 @@ class Subscription(CheddarObject):
         xml = self.request('/customers/edit-subscription',
                            code=self.customer.code, **self._to_persist)
 
-        #: Reload updated data from response
+        # Reload updated data from response
         for subscription_xml in xml.getiterator(tag='subscription'):
             self._load_from_xml(subscription_xml)
             break
         return self
-
-
-    def validate(self):
-        pass
 
     def delete(self):
         xml = self.request('/customers/cancel', code=self.customer.code)
@@ -552,5 +605,42 @@ class Invoice(CheddarObject):
 
 class Item(CheddarObject):
 
-    __serialize__ = ['name', 'quantity_included']
+    __serialize__ = [
+        'name',
+        'quantity_included'
+    ]
+
+
+class MetaDatum(CheddarObject):
+
+    def __init__(self, parent=None, **kwargs):
+        super(MetaDatum, self).__init__(parent, **kwargs)
+
+    def __setattr__(self, key, value):
+        """Custom setattr method for metadata objects so that we don't interfere
+        with the name of the metadata when doing the camelcase/underscore
+        conversion."""
+        if key[0] == '_':
+            self.__dict__[key] = value
+        elif key == 'id':
+            raise AttributeError('CheddarGetter ID is immutable')
+        else:
+            if key not in self._data or self._data[key] != value:
+                self._to_persist[key] = value
+            self._data[key] = value
+
+    def __getattr__(self, key):
+        """Custom getattr method for metadata objects so that we don't interfere
+        with the name of the metadata when doing the camelcase/underscore
+        conversion."""
+        if key == 'id':
+            return self.__dict__['id']
+        elif key[0] == '_' or key in self.__dict__:
+            return self.__dict__[key]
+        elif key in self._to_persist:
+            return self._to_persist[key]
+        elif key in self._data:
+            return self._data[key]
+        else:
+            raise AttributeError, 'Key {} does not exist'.format(key)
 

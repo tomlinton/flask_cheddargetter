@@ -4,7 +4,7 @@
     <firstName>Test</firstName>
     <lastName>User</lastName>
     <company/>
-    <email>garbage@saaspire.com</email>
+    <email>garbage@adddress.com</email>
     <notes/>
     <gatewayToken>SIMULATED</gatewayToken>
     <isVatExempt>0</isVatExempt>

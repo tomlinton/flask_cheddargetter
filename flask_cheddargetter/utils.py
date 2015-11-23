@@ -17,7 +17,7 @@ def get_items_by_customer_code():
     items = {}
     for customer in customers:
         # Grab the items for each customer from the plan of the subscription
-        items[int(customer.code)] = {item.name: item.quantity_included
+        items[int(customer.code)] = {item.name: item.quantity_included \
                 for item in plans[customer.subscription.plan.code].items}
 
     return items
