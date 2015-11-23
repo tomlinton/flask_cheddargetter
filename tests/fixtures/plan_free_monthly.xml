@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plans>
+  <plan id="6b0d13f4-6bef-102e-b098-40402145ee8b" code="FREE_MONTHLY">
+    <name>Free Monthly</name>
+    <description>A free monthly plan</description>
+    <isActive>1</isActive>
+    <isFree>1</isFree>
+    <trialDays>0</trialDays>
+    <initialBillCount>1</initialBillCount>
+    <initialBillCountUnit>months</initialBillCountUnit>
+    <billingFrequency>monthly</billingFrequency>
+    <billingFrequencyPer>month</billingFrequencyPer>
+    <billingFrequencyUnit>months</billingFrequencyUnit>
+    <billingFrequencyQuantity>1</billingFrequencyQuantity>
+    <setupChargeCode></setupChargeCode>
+    <setupChargeAmount>0.00</setupChargeAmount>
+    <recurringChargeCode>FREE_MONTHLY_RECURRING</recurringChargeCode>
+    <recurringChargeAmount>0.00</recurringChargeAmount>
+    <createdDatetime>2011-01-07T20:46:43+00:00</createdDatetime>
+  </plan>
+</plans>

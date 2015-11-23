@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plans>
+  <plan id="11af9cfc-6bf2-102e-b098-40402145ee8b" code="PAID_MONTHLY">
+    <name>Paid Monthly</name>
+    <description></description>
+    <isActive>1</isActive>
+    <isFree>0</isFree>
+    <trialDays>0</trialDays>
+    <initialBillCount>1</initialBillCount>
+    <initialBillCountUnit>months</initialBillCountUnit>
+    <billingFrequency>monthly</billingFrequency>
+    <billingFrequencyPer>month</billingFrequencyPer>
+    <billingFrequencyUnit>months</billingFrequencyUnit>
+    <billingFrequencyQuantity>1</billingFrequencyQuantity>
+    <setupChargeCode></setupChargeCode>
+    <setupChargeAmount>0.00</setupChargeAmount>
+    <recurringChargeCode>PAID_MONTHLY_RECURRING</recurringChargeCode>
+    <recurringChargeAmount>20.00</recurringChargeAmount>
+    <createdDatetime>2011-01-07T21:05:42+00:00</createdDatetime>
+  </plan>
+</plans>
