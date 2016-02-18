@@ -512,6 +512,7 @@ class Subscription(CheddarObject):
         'gateway_account',
         'cancel_type',
         'plan',
+        'invoice',
         'redirect_url'
     ]
 
