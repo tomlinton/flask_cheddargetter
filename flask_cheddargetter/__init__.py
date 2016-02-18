@@ -444,7 +444,6 @@ class Plan(CheddarObject):
     __serialize__ = [
         'billing_frequency',
         'trial_days',
-        'next_invoice_billing_datetime',
         'billing_frequency_quantity',
         'billing_frequency_unit',
         'recurring_charge_amount',
@@ -555,6 +554,10 @@ class Subscription(CheddarObject):
     def plan(self):
         return self.plans[0]
 
+    @property
+    def invoice(self):
+        return self.invoices[0]
+
     def save(self):
         """Save the subscription to CheddarGetter. The CheddarGetter API does
         not do allow the creation of a subscription unless a customer is created
@@ -600,7 +603,15 @@ class Subscription(CheddarObject):
 
 
 class Invoice(CheddarObject):
-    pass
+
+    __serialize__ = [
+        'number',
+        'type',
+        'paidTransactionId',
+        'createdDatetime',
+        'billingDatetime'
+    ]
+
 
 
 class Item(CheddarObject):
