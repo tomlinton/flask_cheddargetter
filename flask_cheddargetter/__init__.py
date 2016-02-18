@@ -22,12 +22,12 @@ from lxml import etree
 from flask import request
 from flask import current_app
 
-from flask_cheddargetter.exceptions import BadRequest
-from flask_cheddargetter.exceptions import NotFound
-from flask_cheddargetter.exceptions import UnexpectedResponse
-from flask_cheddargetter.exceptions import GatewayFailure
-from flask_cheddargetter.exceptions import GatewayConnectionError
-from flask_cheddargetter.exceptions import ValidationError
+from .exceptions import BadRequest
+from .exceptions import NotFound
+from .exceptions import UnexpectedResponse
+from .exceptions import GatewayFailure
+from .exceptions import GatewayConnectionError
+from .exceptions import ValidationError
 
 
 try:
