@@ -608,9 +608,9 @@ class Invoice(CheddarObject):
     __serialize__ = [
         'number',
         'type',
-        'paidTransactionId',
-        'createdDatetime',
-        'billingDatetime'
+        'paid_transaction_id',
+        'created_datetime',
+        'billing_datetime'
     ]
 
 
