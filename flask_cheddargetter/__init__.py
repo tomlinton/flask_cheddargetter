@@ -240,7 +240,7 @@ class CheddarObject(object):
                     value = float(value)
                 # Parse datetimes, use naive detection of key to avoid trying
                 # to parse every field
-                elif 'datetime' in key:
+                elif 'date' in key:
                     try:
                         value = arrow.get(value).datetime
                     except Exception:
