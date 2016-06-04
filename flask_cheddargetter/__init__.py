@@ -88,9 +88,10 @@ class CheddarGetter(object):
 
             utmz_string = request.cookies.get('__utmz')
             parsed_utmz_string = utmz_string.split('.')
-            # Something is wrong, give up
-            if len(parsed_utmz_string) < 4:
+            if len(parsed_utmz_string) < 5:
+                # Something is wrong, give up
                 return
+
             # Rejoin when src or cct might have a dot i.e. utmscr=example.com
             parsed_utmz_string[4] = '.'.join(parsed_utmz_string[4:])
 
