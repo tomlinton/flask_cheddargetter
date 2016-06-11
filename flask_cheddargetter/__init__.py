@@ -88,7 +88,7 @@ class CheddarGetter(object):
 
             utmz_string = request.cookies.get('__utmz')
             parsed_utmz_string = utmz_string.split('.')
-            if len(parsed_utmz_string) < 5:
+            if len(parsed_utmz_string) < 4:
                 # Something is wrong, give up
                 return
 
@@ -97,7 +97,7 @@ class CheddarGetter(object):
 
             #pylint: disable=W0612
             _domain_hash, _timestamp, _session_number, _campaign_number, \
-                    campaign_data = parsed_utmz_string
+                    campaign_data = parsed_utmz_string[:5]
 
             # Extract campaign data
             translations = {
