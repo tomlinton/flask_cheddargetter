@@ -19,4 +19,3 @@ def get_items_by_customer_code():
 
     return items
 
-
