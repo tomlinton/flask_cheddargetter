@@ -481,10 +481,6 @@ class Plan(CheddarObject):
     def delete(self):
         self.request('/plans/delete', code=self._code)
 
-    @classmethod
-    def get_item():
-        pass
-
 
 class GatewayAccount(CheddarObject):
 
