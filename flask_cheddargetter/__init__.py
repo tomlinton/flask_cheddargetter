@@ -514,7 +514,8 @@ class Subscription(CheddarObject):
         'cancel_type',
         'plan',
         'invoice',
-        'redirect_url'
+        'redirect_url',
+        'is_active'
     ]
 
     def __init__(self, **kwargs):
@@ -559,6 +560,20 @@ class Subscription(CheddarObject):
     @property
     def invoice(self):
         return self.invoices[0]
+
+    @property
+    def is_active(self):
+        """Whether or not the subscription is active and paid. The subscription
+        is deemed to be active if it has not been cancelled or if it has been
+        cancelled and there is still time remaining in the billing period.
+        """
+        now = datetime.datetime.utcnow()
+        if self.cancel_type and \
+                self.invoice.billing_datetime.replace(tzinfo=None) < now:
+            # Cancelled and billing period has expired
+            return False
+
+        return True
 
     def save(self):
         """Save the subscription to CheddarGetter. The CheddarGetter API does
