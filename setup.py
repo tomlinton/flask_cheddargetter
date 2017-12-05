@@ -4,7 +4,7 @@ from distutils.core import setup
 
 
 setup(name='flask_cheddargetter',
-      version='0.1.2.1',
+      version='0.1.2.2',
       description='A Flask extension for integrating subscriptions via'
                   'CheddarGetter (http://cheddargetter.com).',
       author='Thomas Linton',
@@ -12,4 +12,3 @@ setup(name='flask_cheddargetter',
       packages=['flask_cheddargetter'],
       requires=['arrow', 'lxml', 'requests', 'inflection', 'simplejson']
 )
-

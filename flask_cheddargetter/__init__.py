@@ -16,6 +16,7 @@ import requests
 import datetime
 import inflection
 import simplejson as json
+from decimal import Decimal
 from requests.adapters import HTTPAdapter
 from os import environ
 from lxml import etree
@@ -208,10 +209,15 @@ class CheddarObject(object):
                 if not is_list:
                     # Single object
                     try:
-                        cls = getattr(sys.modules[__name__],
-                                      inflection.camelize(child.tag))
-                        setattr(self, inflection.underscore(child.tag),
-                                cls.from_xml(child, parent=self))
+                        cls = getattr(
+                            sys.modules[__name__],
+                            inflection.camelize(child.tag)
+                        )
+                        setattr(
+                            self,
+                            inflection.underscore(child.tag),
+                            cls.from_xml(child, parent=self)
+                        )
                     except AttributeError:
                         # No class for this object, ignore it
                         pass
@@ -220,10 +226,14 @@ class CheddarObject(object):
                     setattr(self, inflection.underscore(child.tag), [])
                     for item_xml in child.getchildren():
                         try:
-                            cls = getattr(sys.modules[__name__],
-                                          inflection.camelize(item_xml.tag))
-                            attr = getattr(self,
-                                           inflection.underscore(child.tag))
+                            cls = getattr(
+                                sys.modules[__name__],
+                                inflection.camelize(item_xml.tag)
+                            )
+                            attr = getattr(
+                                self,
+                                inflection.underscore(child.tag)
+                            )
                             attr.append(cls.from_xml(item_xml, parent=self))
                         except AttributeError:
                             # Give up, remaining items are all the same and
@@ -262,16 +272,18 @@ class CheddarObject(object):
         return new
 
     @classmethod
-    def build_url(cls, path, code=None, is_new=False):
+    def build_url(cls, path, code=None, item_code=None, is_new=False):
         # Build the request URL
         url = 'https://cheddargetter.com/xml' + path + '/productCode/{}'
         url = url.format(current_app.config.get('CHEDDAR_PRODUCT'))
         if code is not None and not is_new:
             url += '/code/{}'.format(code)
+        if item_code is not None:
+            url += '/itemCode/{}'.format(item_code)
         return url
 
     @classmethod
-    def request(cls, path, code=None, is_new=False, **kwargs):
+    def request(cls, path, code=None, item_code=None, is_new=False, **kwargs):
 
         if not current_app.config['CHEDDAR_EMAIL']:
             raise Exception('CHEDDAR_EMAIL not configured')
@@ -280,7 +292,7 @@ class CheddarObject(object):
         if not current_app.config['CHEDDAR_PRODUCT']:
             raise Exception('CHEDDAR_PRODUCT not configured')
 
-        url = cls.build_url(path, code, is_new)
+        url = cls.build_url(path, code, item_code, is_new)
         if is_new:
             kwargs['code'] = code
 
@@ -353,11 +365,12 @@ class Customer(CheddarObject):
         try:
             customers = []
             xml = cls.request('/customers/get')
-            for customer_xml in xml.getiterator(tag='customer'):
+            for customer_xml in xml.iter(tag='customer'):
                 customers.append(Customer.from_xml(customer_xml))
-            return customers
         except NotFound:
             return []
+        else:
+            return customers
 
     @classmethod
     def list(cls):
@@ -367,20 +380,27 @@ class Customer(CheddarObject):
         try:
             customers = []
             xml = cls.request('/customers/list')
-            for customer_xml in xml.getiterator(tag='customer'):
+            for customer_xml in xml.iter(tag='customer'):
                 customers.append(Customer.from_xml(customer_xml))
-            return customers
         except NotFound:
             return []
+        else:
+            return customers
+
 
     @classmethod
     def get(cls, code):
         xml = cls.request('/customers/get', code=code)
-        for customer_xml in xml.getiterator(tag='customer'):
+
+        customer_xml = next(xml.iter(tag='customer'), None)
+        if customer_xml is not None:
             return Customer.from_xml(customer_xml)
+
+        return None
 
     @property
     def subscription(self):
+        # Current subscription is the first one
         return self.subscriptions[0]
 
     def save(self):
@@ -420,7 +440,7 @@ class Customer(CheddarObject):
                                **self._to_persist)
 
         # Reload the current customer object
-        for customer_xml in xml.getiterator(tag='customer'):
+        for customer_xml in xml.iter(tag='customer'):
             self._load_from_xml(customer_xml)
 
         # We've saved successfully, we don't want to persist the changes again
@@ -436,6 +456,7 @@ class Customer(CheddarObject):
             if datum.name == name:
                 datum.value = value
                 return
+
         # No existing metadata with that name, create a new one
         self.meta_data.append(MetaDatum(name=name, value=value))
 
@@ -460,17 +481,17 @@ class Plan(CheddarObject):
         plans = []
         try:
             xml = cls.request('/plans/get')
-            for plan_xml in xml.getiterator(tag='plan'):
+            for plan_xml in xml.iter(tag='plan'):
                 plans.append(Plan.from_xml(plan_xml))
-            return plans
         except NotFound:
             return []
+        return plans
 
     @classmethod
     def get(cls, code):
         try:
             xml = cls.request('/plans/get', code=code)
-            for plan_xml in xml.getiterator(tag='plan'):
+            for plan_xml in xml.iter(tag='plan'):
                 return Plan.from_xml(plan_xml)
         except NotFound:
             return []
@@ -519,6 +540,7 @@ class Subscription(CheddarObject):
         # should have a plan
         self.plans = []
         self.plans.append(Plan())
+        self.items = []
         super(Subscription, self).__init__(**kwargs)
 
     def __getattr__(self, key):
@@ -599,20 +621,27 @@ class Subscription(CheddarObject):
                         self._to_persist[key]
                 del self._to_persist[key]
 
-        xml = self.request('/customers/edit-subscription',
-                           code=self.customer.code, **self._to_persist)
+        xml = self.request(
+            '/customers/edit-subscription',
+            code=self.customer.code,
+            **self._to_persist
+        )
 
         # Reload updated data from response
-        for subscription_xml in xml.getiterator(tag='subscription'):
+        subscription_xml = next(xml.iter(tag='subscription'), None)
+        if subscription_xml is not None:
             self._load_from_xml(subscription_xml)
-            break
+
         return self
 
     def delete(self):
         xml = self.request('/customers/cancel', code=self.customer.code)
-        for subscription_xml in xml.getiterator(tag='subscription'):
+
+        subscription_xml = next(xml.iter(tag='subscription'), None)
+        if subscription_xml is not None:
             self._load_from_xml(subscription_xml)
-            break
+
+        return self
 
 
 class Invoice(CheddarObject):
@@ -626,13 +655,84 @@ class Invoice(CheddarObject):
     ]
 
 
-
 class Item(CheddarObject):
 
     __serialize__ = [
         'name',
-        'quantity_included'
+        'quantity',
+        'quantity_included',
+        'quantity_used',
+        'overage_amount',
+        'created',
+        'modified'
     ]
+
+    def _normalize_quantity(self, quantity=None):
+        if quantity is not None:
+            quantity = Decimal(quantity)
+            quantity = quantity.quantize(Decimal('.0001'))
+
+        return quantity
+
+    def increment(self, quantity=None):
+        """Increment the item's quantity by the passed amount. If nothing is
+        passed a quantity of 1 is assumed."""
+
+        data = {}
+        if quantity:
+            data['quantity'] = self._normalize_quantity(quantity)
+
+        xml = self.request(
+            '/customers/add-item-quantity',
+            code=self.subscription.customer.code,
+            item_code=self.code,
+            **data
+        )
+
+        item_xpath = '//subscription/items/item[@id="%s"]' % self.id
+        (item_xml,) = xml.xpath(item_xpath)
+        self._load_from_xml(item_xml)
+
+        return self
+
+    def decrement(self, quantity=None):
+        """Decrement item's quantity to the passed in amount. If nothing is
+        passed a quantity of 1 is assumed."""
+        data = {}
+        if quantity:
+            data['quantity'] = self._normalize_quantity(quantity)
+
+        xml = self.request(
+            '/customers/remove-item-quantity',
+            code=self.subscription.customer.code,
+            item_code=self.code,
+            **data
+        )
+
+        item_xpath = '//subscription/items/item[@id="%s"]' % self.id
+        (item_xml,) = xml.xpath(item_xpath)
+        self._load_from_xml(item_xml)
+
+        return self
+
+    def set(self, quantity):
+        """Set the item's quantity to the passed in amount. If nothing is
+        passed a quantity of 1 is assumed."""
+        data = {}
+        data['quantity'] = self._normalize_quantity(quantity)
+
+        xml = self.request(
+            '/customers/set-item-quantity',
+            code=self.subscription.customer.code,
+            item_code=self.code,
+            **data
+        )
+
+        item_xpath = '//subscription/items/item[@id="%s"]' % self.id
+        (item_xml,) = xml.xpath(item_xpath)
+        self._load_from_xml(item_xml)
+
+        return self
 
 
 class MetaDatum(CheddarObject):
@@ -667,4 +767,3 @@ class MetaDatum(CheddarObject):
             return self._data[key]
         else:
             raise AttributeError, 'Key {} does not exist'.format(key)
-
