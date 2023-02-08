@@ -10,7 +10,6 @@ class UnexpectedResponse(Exception):
 
 
 class CheddarException(Exception):
-
     def __init__(self, error_id, code, message, aux_code=None):
         self.error_id = error_id
         self.code = code
@@ -32,4 +31,3 @@ class GatewayFailure(CheddarException):
 
 class GatewayConnectionError(CheddarException):
     pass
-
