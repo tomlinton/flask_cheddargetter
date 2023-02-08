@@ -17,7 +17,6 @@ import datetime
 import inflection
 import simplejson as json
 from decimal import Decimal
-from requests.adapters import HTTPAdapter
 from os import environ
 from lxml import etree
 from flask import request
@@ -28,38 +27,28 @@ from .exceptions import NotFound
 from .exceptions import UnexpectedResponse
 from .exceptions import GatewayFailure
 from .exceptions import GatewayConnectionError
-from .exceptions import ValidationError
-
-
-try:
-    from flask import _app_ctx_stack as stack
-except ImportError:
-    from flask import _request_ctx_stack as stack
 
 
 class CheddarGetter(object):
-
     def __init__(self, app=None):
         self.app = app
         if app is not None:
             self.init_app(app)
 
     def init_app(self, app):
-        app.config.setdefault('CHEDDAR_EMAIL',
-                              environ.get('CHEDDAR_EMAIL', None))
-        app.config.setdefault('CHEDDAR_PASSWORD',
-                              environ.get('CHEDDAR_PASSWORD', None))
-        app.config.setdefault('CHEDDAR_PRODUCT',
-                              environ.get('CHEDDAR_PRODUCT', None))
-        app.config.setdefault('CHEDDAR_MARKETING_COOKIE_NAME',
-                              environ.get('CHEDDAR_MARKETING_COOKIE_NAME',
-                                          None))
+        app.config.setdefault("CHEDDAR_EMAIL", environ.get("CHEDDAR_EMAIL", None))
+        app.config.setdefault("CHEDDAR_PASSWORD", environ.get("CHEDDAR_PASSWORD", None))
+        app.config.setdefault("CHEDDAR_PRODUCT", environ.get("CHEDDAR_PRODUCT", None))
+        app.config.setdefault(
+            "CHEDDAR_MARKETING_COOKIE_NAME",
+            environ.get("CHEDDAR_MARKETING_COOKIE_NAME", None),
+        )
 
-        if not hasattr(app, 'extensions'):
+        if not hasattr(app, "extensions"):
             app.extensions = {}
-        app.extensions['cheddargetter'] = self
+        app.extensions["cheddargetter"] = self
 
-        self.cookie_name = app.config['CHEDDAR_MARKETING_COOKIE_NAME']
+        self.cookie_name = app.config["CHEDDAR_MARKETING_COOKIE_NAME"]
         return app
 
     def build_marketing_cookie(self):
@@ -67,65 +56,70 @@ class CheddarGetter(object):
             return False
 
         utm_params = {
-            'utm_term': 'campaignTerm',
-            'utm_campaign': 'campaignName',
-            'utm_source': 'campaignSource',
-            'utm_medium': 'campaignMedium',
-            'utm_content': 'campaignContent'
+            "utm_term": "campaignTerm",
+            "utm_campaign": "campaignName",
+            "utm_source": "campaignSource",
+            "utm_medium": "campaignMedium",
+            "utm_content": "campaignContent",
         }
 
         if not request.cookies.get(self.cookie_name):
             # Marketing cookie was not set, set it
             cookie = {}
-            cookie['firstContactDatetime'] = datetime.datetime.now().isoformat()
-            cookie['referer'] = request.environ.get('HTTP_REFERER', 'direct')
-            for utm_param, cg_param in utm_params.items():
+            cookie["firstContactDatetime"] = datetime.datetime.now().isoformat()
+            cookie["referer"] = request.environ.get("HTTP_REFERER", "direct")
+            for utm_param, cg_param in list(utm_params.items()):
                 cookie[cg_param] = request.environ.get(utm_param, None)
             return cookie
 
-        elif request.cookies.get('__utmz', None):
+        elif request.cookies.get("__utmz", None):
             # We have a marketing cookie, refine with __utmz cookie
             cookie = json.loads(request.cookies.get(self.cookie_name))
 
-            utmz_string = request.cookies.get('__utmz')
-            parsed_utmz_string = utmz_string.split('.')
+            utmz_string = request.cookies.get("__utmz")
+            parsed_utmz_string = utmz_string.split(".")
             if len(parsed_utmz_string) < 4:
                 # Something is wrong, give up
                 return
 
             # Rejoin when src or cct might have a dot i.e. utmscr=example.com
-            parsed_utmz_string[4] = '.'.join(parsed_utmz_string[4:])
+            parsed_utmz_string[4] = ".".join(parsed_utmz_string[4:])
 
-            #pylint: disable=W0612
-            _domain_hash, _timestamp, _session_number, _campaign_number, \
-                    campaign_data = parsed_utmz_string[:5]
+            # pylint: disable=W0612
+            (
+                _domain_hash,
+                _timestamp,
+                _session_number,
+                _campaign_number,
+                campaign_data,
+            ) = parsed_utmz_string[:5]
 
             # Extract campaign data
             translations = {
-                'utmcsr': 'campaignSource',
-                'utmccn': 'campaignName',
-                'utmcmd': 'campaignMedium',
-                'utmctr': 'campaignTerm',
-                'utmcct': 'campaignContent'
+                "utmcsr": "campaignSource",
+                "utmccn": "campaignName",
+                "utmcmd": "campaignMedium",
+                "utmctr": "campaignTerm",
+                "utmcct": "campaignContent",
             }
-            for params in campaign_data.split('|'):
-                key, value = params.split('=')
+            for params in campaign_data.split("|"):
+                key, value = params.split("=")
                 if key in translations:
                     cookie[translations[key]] = value
 
             # Override some fields if this is an AdWords lead
-            if 'gclid=' in campaign_data:
-                cookie['campaignSource'] = 'google'
-                cookie['campaignMedium'] = 'ppc'
+            if "gclid=" in campaign_data:
+                cookie["campaignSource"] = "google"
+                cookie["campaignMedium"] = "ppc"
 
             return cookie
 
 
 class CheddarObject(object):
-    """ A base class for CheddarGetter objects. """
+    """A base class for CheddarGetter objects."""
 
     def __init__(self, parent=None, **kwargs):
-        self._product_code = current_app.config['CHEDDAR_PRODUCT']
+        self._product_code = current_app.config["CHEDDAR_PRODUCT"]
         self._data = {}
         self._to_persist = {}
         self._id = None
@@ -139,36 +133,39 @@ class CheddarObject(object):
 
     def __setattr__(self, key, value):
         # If modifying a private attribute of the class then set it directly
-        if key[0] == '_':
+        if key[0] == "_":
             self.__dict__[key] = value
-        elif key == 'code':
+        elif key == "code":
             if self._id is None:
                 self._code = value
             else:
-                raise AttributeError('Saved CheddarGetter object codes '
-                                     'are immutable')
-        elif key == 'id':
-            raise AttributeError('CheddarGetter ID is immutable')
+                raise AttributeError(
+                    "Saved CheddarGetter object codes " "are immutable"
+                )
+        elif key == "id":
+            raise AttributeError("CheddarGetter ID is immutable")
         elif isinstance(value, CheddarObject) or isinstance(value, list):
             self.__dict__[key] = value
         else:
             # Add value to dictionary of attributes to save to CheddarGetter
-            if inflection.underscore(key) not in self._data or \
-                    self._data[inflection.underscore(key)] != value:
+            if (
+                inflection.underscore(key) not in self._data
+                or self._data[inflection.underscore(key)] != value
+            ):
                 self._to_persist[inflection.underscore(key)] = value
             self._data[inflection.underscore(key)] = value
 
     def __getattr__(self, key):
-        if key in ['id', 'code']:
-            return self.__dict__['_{}'.format(key)]
-        elif key[0] == '_' or key in self.__dict__:
+        if key in ["id", "code"]:
+            return self.__dict__["_{}".format(key)]
+        elif key[0] == "_" or key in self.__dict__:
             return self.__dict__[key]
         elif key in self._to_persist:
             return self._to_persist[inflection.underscore(key)]
         elif key in self._data:
             return self._data[inflection.underscore(key)]
         else:
-            raise AttributeError, 'Key {} does not exist'.format(key)
+            raise AttributeError("Key {} does not exist".format(key))
 
     def __eq__(self, other):
         return self._id == other._id and self._id is not None
@@ -177,28 +174,28 @@ class CheddarObject(object):
         return not self.__eq__(other)
 
     def __contains__(self, key):
-        if key == 'id' or key == '_id':
+        if key == "id" or key == "_id":
             return self._id is not None
-        if key == 'code' or key == '_code':
+        if key == "code" or key == "_code":
             return self._code is not None
         return key in self._data
 
     def __iter__(self):
-        return self.iteritems()
+        return iter(self.items())
 
     def _asdict(self):
         data = {}
-        for key in getattr(self, '__serialize__', []):
+        for key in getattr(self, "__serialize__", []):
             if hasattr(self, key):
                 data[key] = getattr(self, key)
         return data
 
     def is_new(self):
-        return not 'id' in self
+        return not "id" in self
 
     def _load_from_xml(self, xml):
-        self._id = xml.get('id')
-        self._code = xml.get('code')
+        self._id = xml.get("id")
+        self._code = xml.get("code")
 
         for child in xml.getchildren():
             if len(child.getchildren()) > 0:
@@ -210,13 +207,12 @@ class CheddarObject(object):
                     # Single object
                     try:
                         cls = getattr(
-                            sys.modules[__name__],
-                            inflection.camelize(child.tag)
+                            sys.modules[__name__], inflection.camelize(child.tag)
                         )
                         setattr(
                             self,
                             inflection.underscore(child.tag),
-                            cls.from_xml(child, parent=self)
+                            cls.from_xml(child, parent=self),
                         )
                     except AttributeError:
                         # No class for this object, ignore it
@@ -227,13 +223,9 @@ class CheddarObject(object):
                     for item_xml in child.getchildren():
                         try:
                             cls = getattr(
-                                sys.modules[__name__],
-                                inflection.camelize(item_xml.tag)
+                                sys.modules[__name__], inflection.camelize(item_xml.tag)
                             )
-                            attr = getattr(
-                                self,
-                                inflection.underscore(child.tag)
-                            )
+                            attr = getattr(self, inflection.underscore(child.tag))
                             attr.append(cls.from_xml(item_xml, parent=self))
                         except AttributeError:
                             # Give up, remaining items are all the same and
@@ -245,13 +237,13 @@ class CheddarObject(object):
             value = child.text
             if value is not None:
                 # Parse numeric types
-                if re.match(r'^[\d]+$', value):
+                if re.match(r"^[\d]+$", value):
                     value = int(value)
-                elif re.match(r'^[\d.]+$', value):
+                elif re.match(r"^[\d.]+$", value):
                     value = float(value)
                 # Parse datetimes, use naive detection of key to avoid trying
                 # to parse every field
-                elif 'date' in key:
+                elif "date" in key:
                     try:
                         value = arrow.get(value).datetime
                     except Exception:
@@ -266,7 +258,7 @@ class CheddarObject(object):
 
     @classmethod
     def from_xml(cls, xml, **kwargs):
-        parent = kwargs.pop('parent', None)
+        parent = kwargs.pop("parent", None)
         new = cls(parent=parent, **kwargs)
         new._load_from_xml(xml)
         return new
@@ -274,57 +266,57 @@ class CheddarObject(object):
     @classmethod
     def build_url(cls, path, code=None, item_code=None, is_new=False):
         # Build the request URL
-        url = 'https://cheddargetter.com/xml' + path + '/productCode/{}'
-        url = url.format(current_app.config.get('CHEDDAR_PRODUCT'))
+        url = "https://cheddargetter.com/xml" + path + "/productCode/{}"
+        url = url.format(current_app.config.get("CHEDDAR_PRODUCT"))
         if code is not None and not is_new:
-            url += '/code/{}'.format(code)
+            url += "/code/{}".format(code)
         if item_code is not None:
-            url += '/itemCode/{}'.format(item_code)
+            url += "/itemCode/{}".format(item_code)
         return url
 
     @classmethod
     def request(cls, path, code=None, item_code=None, is_new=False, **kwargs):
-
-        if not current_app.config['CHEDDAR_EMAIL']:
-            raise Exception('CHEDDAR_EMAIL not configured')
-        if not current_app.config['CHEDDAR_PASSWORD']:
-            raise Exception('CHEDDAR_PASSWORD not configured')
-        if not current_app.config['CHEDDAR_PRODUCT']:
-            raise Exception('CHEDDAR_PRODUCT not configured')
+        if not current_app.config["CHEDDAR_EMAIL"]:
+            raise Exception("CHEDDAR_EMAIL not configured")
+        if not current_app.config["CHEDDAR_PASSWORD"]:
+            raise Exception("CHEDDAR_PASSWORD not configured")
+        if not current_app.config["CHEDDAR_PRODUCT"]:
+            raise Exception("CHEDDAR_PRODUCT not configured")
 
         url = cls.build_url(path, code, item_code, is_new)
         if is_new:
-            kwargs['code'] = code
+            kwargs["code"] = code
 
         # Set keys to Zend convention
         for key in copy.copy(kwargs):
             # Handle metaData keys separately to avoid camel casing user
             # defined name attribute
-            if '_' in key and not key.startswith('metaData'):
+            if "_" in key and not key.startswith("metaData"):
                 kwargs[inflection.camelize(key, False)] = kwargs[key]
                 del kwargs[key]
 
         # Execute the request
         client = requests.Session()
-        client.auth = (current_app.config.get('CHEDDAR_EMAIL'),
-                       current_app.config.get('CHEDDAR_PASSWORD'))
+        client.auth = (
+            current_app.config.get("CHEDDAR_EMAIL"),
+            current_app.config.get("CHEDDAR_PASSWORD"),
+        )
         response = client.post(url, data=kwargs)
 
         try:
             content = etree.fromstring(response.content)
         except:
-            raise UnexpectedResponse('CheddarGetter sent Invalid XML',
-                                     response.content)
+            raise UnexpectedResponse("CheddarGetter sent Invalid XML", response.content)
 
         code_exception_map = {
             400: BadRequest,
             404: NotFound,
             412: BadRequest,
             422: GatewayFailure,
-            500: GatewayConnectionError
+            500: GatewayConnectionError,
         }
 
-        if response.status_code > 400 or content.tag == 'error':
+        if response.status_code > 400 or content.tag == "error":
             if response.status_code in code_exception_map:
                 exception = code_exception_map[response.status_code]
             else:
@@ -332,24 +324,19 @@ class CheddarObject(object):
             # If the customer didn't exist in CheddarGetter the error will be
             # the only thing returned. If the customer did exist the error
             # will be embedded in the customer object
-            error = content if content.tag == 'error' else \
-                    content.find('.//error')
-            raise exception(error.get('id', None),
-                            error.get('code', None),
-                            error.text,
-                            error.get('auxCode', None))
+            error = content if content.tag == "error" else content.find(".//error")
+            raise exception(
+                error.get("id", None),
+                error.get("code", None),
+                error.text,
+                error.get("auxCode", None),
+            )
 
         return content
 
 
 class Customer(CheddarObject):
-
-    __serialize__ = [
-        'id',
-        'first_name',
-        'last_name',
-        'email'
-    ]
+    __serialize__ = ["id", "first_name", "last_name", "email"]
 
     def __init__(self, **kwargs):
         # Add an empty subscription to the customer object because the
@@ -364,8 +351,8 @@ class Customer(CheddarObject):
     def all(cls):
         try:
             customers = []
-            xml = cls.request('/customers/get')
-            for customer_xml in xml.iter(tag='customer'):
+            xml = cls.request("/customers/get")
+            for customer_xml in xml.iter(tag="customer"):
                 customers.append(Customer.from_xml(customer_xml))
         except NotFound:
             return []
@@ -379,20 +366,19 @@ class Customer(CheddarObject):
         get method often is too large and is returned incomplete."""
         try:
             customers = []
-            xml = cls.request('/customers/list')
-            for customer_xml in xml.iter(tag='customer'):
+            xml = cls.request("/customers/list")
+            for customer_xml in xml.iter(tag="customer"):
                 customers.append(Customer.from_xml(customer_xml))
         except NotFound:
             return []
         else:
             return customers
 
-
     @classmethod
     def get(cls, code):
-        xml = cls.request('/customers/get', code=code)
+        xml = cls.request("/customers/get", code=code)
 
-        customer_xml = next(xml.iter(tag='customer'), None)
+        customer_xml = next(xml.iter(tag="customer"), None)
         if customer_xml is not None:
             return Customer.from_xml(customer_xml)
 
@@ -407,40 +393,41 @@ class Customer(CheddarObject):
         # Collect all the keys from the subscription and modify them to
         # CheddarGetter format for submission with the customer
         subscription_fields = [
-            'cc_first_name',
-            'cc_last_name',
-            'cc_number',
-            'cc_expiration',
-            'cc_card_code',
-            'cc_zip',
-            'return_url',
-            'cancel_url',
-            'method',
-            'plan_code'
+            "cc_first_name",
+            "cc_last_name",
+            "cc_number",
+            "cc_expiration",
+            "cc_card_code",
+            "cc_zip",
+            "return_url",
+            "cancel_url",
+            "method",
+            "plan_code",
         ]
         for key in subscription_fields:
             if key in self.subscription._to_persist:
-                self._to_persist['subscription[%s]' % key] = \
-                        getattr(self.subscription, key)
+                self._to_persist["subscription[%s]" % key] = getattr(
+                    self.subscription, key
+                )
 
         for datum in self.meta_data:
-            if 'value' in datum._to_persist:
-                self._to_persist['metaData[%s]' % datum.name] = datum.value
+            if "value" in datum._to_persist:
+                self._to_persist["metaData[%s]" % datum.name] = datum.value
 
         if not self._to_persist:
             return
 
         if self.is_new():
             # Object doesn't exist in Cheddargetter, create it
-            xml = self.request('/customers/new', code=self._code,
-                               is_new=True, **self._to_persist)
+            xml = self.request(
+                "/customers/new", code=self._code, is_new=True, **self._to_persist
+            )
         else:
             # Object exists in CheddarGetter, this is just an update
-            xml = self.request('/customers/edit', code=self._code,
-                               **self._to_persist)
+            xml = self.request("/customers/edit", code=self._code, **self._to_persist)
 
         # Reload the current customer object
-        for customer_xml in xml.iter(tag='customer'):
+        for customer_xml in xml.iter(tag="customer"):
             self._load_from_xml(customer_xml)
 
         # We've saved successfully, we don't want to persist the changes again
@@ -462,26 +449,25 @@ class Customer(CheddarObject):
 
 
 class Plan(CheddarObject):
-
     __serialize__ = [
-        'billing_frequency',
-        'trial_days',
-        'billing_frequency_quantity',
-        'billing_frequency_unit',
-        'recurring_charge_amount',
-        'is_free',
-        'is_active',
-        'name',
-        'items',
-        'code'
+        "billing_frequency",
+        "trial_days",
+        "billing_frequency_quantity",
+        "billing_frequency_unit",
+        "recurring_charge_amount",
+        "is_free",
+        "is_active",
+        "name",
+        "items",
+        "code",
     ]
 
     @classmethod
     def all(cls):
         plans = []
         try:
-            xml = cls.request('/plans/get')
-            for plan_xml in xml.iter(tag='plan'):
+            xml = cls.request("/plans/get")
+            for plan_xml in xml.iter(tag="plan"):
                 plans.append(Plan.from_xml(plan_xml))
         except NotFound:
             return []
@@ -490,8 +476,8 @@ class Plan(CheddarObject):
     @classmethod
     def get(cls, code):
         try:
-            xml = cls.request('/plans/get', code=code)
-            for plan_xml in xml.iter(tag='plan'):
+            xml = cls.request("/plans/get", code=code)
+            for plan_xml in xml.iter(tag="plan"):
                 return Plan.from_xml(plan_xml)
         except NotFound:
             return []
@@ -500,39 +486,35 @@ class Plan(CheddarObject):
         raise NotImplementedError
 
     def delete(self):
-        self.request('/plans/delete', code=self._code)
+        self.request("/plans/delete", code=self._code)
 
 
 class GatewayAccount(CheddarObject):
-
-    __serialize__ = [
-        'gateway'
-    ]
+    __serialize__ = ["gateway"]
 
 
 class Subscription(CheddarObject):
-
     __serialize__ = [
-        'cc_last_four',
-        'cc_company',
-        'cc_state',
-        'cc_type',
-        'cc_city',
-        'cc_zip',
-        'cc_country',
-        'cc_first_name',
-        'cc_last_name',
-        'cc_email',
-        'cc_expiration_date',
-        'cc_address',
-        'created_datetime',
-        'canceled_datetime',
-        'gateway_account',
-        'cancel_type',
-        'plan',
-        'invoice',
-        'redirect_url',
-        'is_active'
+        "cc_last_four",
+        "cc_company",
+        "cc_state",
+        "cc_type",
+        "cc_city",
+        "cc_zip",
+        "cc_country",
+        "cc_first_name",
+        "cc_last_name",
+        "cc_email",
+        "cc_expiration_date",
+        "cc_address",
+        "created_datetime",
+        "canceled_datetime",
+        "gateway_account",
+        "cancel_type",
+        "plan",
+        "invoice",
+        "redirect_url",
+        "is_active",
     ]
 
     def __init__(self, **kwargs):
@@ -545,14 +527,13 @@ class Subscription(CheddarObject):
 
     def __getattr__(self, key):
         # Proxy plan_code to the plan object
-        if inflection.underscore(key) == 'plan_code':
+        if inflection.underscore(key) == "plan_code":
             return self.plan.code
         return super(Subscription, self).__getattr__(key)
 
     def __setattr__(self, key, value):
         # Intercept plan code and handle it appropriately
-        if inflection.underscore(key) == 'plan_code' and \
-                value is not self.plan.code:
+        if inflection.underscore(key) == "plan_code" and value is not self.plan.code:
             previous_plan = self.plans.pop(0)
             # Add the new plan to the subscriptions plans
             self.plans.insert(0, Plan.get(value))
@@ -560,11 +541,16 @@ class Subscription(CheddarObject):
             if previous_plan and value != previous_plan.code:
                 # Get the plan_code from the current plan and add it to our
                 # data to be saved if this is a plan change
-                self._to_persist['plan_code'] = self.plan.code
+                self._to_persist["plan_code"] = self.plan.code
 
-        if inflection.underscore(key) in ['cc_first_name', 'cc_last_name',
-                                          'cc_number', 'cc_expiration',
-                                          'cc_card_code', 'method']:
+        if inflection.underscore(key) in [
+            "cc_first_name",
+            "cc_last_name",
+            "cc_number",
+            "cc_expiration",
+            "cc_card_code",
+            "method",
+        ]:
             # Always persist these fields in case this is a subscription
             # change (plan or payment change)
             self._to_persist[inflection.underscore(key)] = value
@@ -580,18 +566,16 @@ class Subscription(CheddarObject):
         return self.invoices[0]
 
     @property
-    def invoices(self):
-        return self.invoices
-
-    @property
     def is_active(self):
         """Whether or not the subscription is active and paid. The subscription
         is deemed to be active if it has not been cancelled or if it has been
         cancelled and there is still time remaining in the billing period.
         """
         now = datetime.datetime.utcnow()
-        if self.cancel_type and \
-                self.invoice.billing_datetime.replace(tzinfo=None) < now:
+        if (
+            self.cancel_type
+            and self.invoice.billing_datetime.replace(tzinfo=None) < now
+        ):
             # Cancelled and billing period has expired
             return False
 
@@ -606,7 +590,7 @@ class Subscription(CheddarObject):
         # If this is a new subscription save the parent customer object instead
         # OR if this is a previously cancelled subscription we need to save the
         # customer and associated subscription to create a new subscription.
-        if self.is_new() or self.cancel_type == 'customer':
+        if self.is_new() or self.cancel_type == "customer":
             if self.customer._is_dirty():
                 self.customer.save()
             return self
@@ -620,28 +604,27 @@ class Subscription(CheddarObject):
 
         # Convert keys to camel case
         for key in copy.copy(self._to_persist):
-            if '_' in key:
-                self._to_persist[inflection.camelize(key, False)] = \
-                        self._to_persist[key]
+            if "_" in key:
+                self._to_persist[inflection.camelize(key, False)] = self._to_persist[
+                    key
+                ]
                 del self._to_persist[key]
 
         xml = self.request(
-            '/customers/edit-subscription',
-            code=self.customer.code,
-            **self._to_persist
+            "/customers/edit-subscription", code=self.customer.code, **self._to_persist
         )
 
         # Reload updated data from response
-        subscription_xml = next(xml.iter(tag='subscription'), None)
+        subscription_xml = next(xml.iter(tag="subscription"), None)
         if subscription_xml is not None:
             self._load_from_xml(subscription_xml)
 
         return self
 
     def delete(self):
-        xml = self.request('/customers/cancel', code=self.customer.code)
+        xml = self.request("/customers/cancel", code=self.customer.code)
 
-        subscription_xml = next(xml.iter(tag='subscription'), None)
+        subscription_xml = next(xml.iter(tag="subscription"), None)
         if subscription_xml is not None:
             self._load_from_xml(subscription_xml)
 
@@ -649,32 +632,30 @@ class Subscription(CheddarObject):
 
 
 class Invoice(CheddarObject):
-
     __serialize__ = [
-        'number',
-        'type',
-        'paid_transaction_id',
-        'created_datetime',
-        'billing_datetime'
+        "number",
+        "type",
+        "paid_transaction_id",
+        "created_datetime",
+        "billing_datetime",
     ]
 
 
 class Item(CheddarObject):
-
     __serialize__ = [
-        'name',
-        'quantity',
-        'quantity_included',
-        'quantity_used',
-        'overage_amount',
-        'created',
-        'modified'
+        "name",
+        "quantity",
+        "quantity_included",
+        "quantity_used",
+        "overage_amount",
+        "created",
+        "modified",
     ]
 
     def _normalize_quantity(self, quantity=None):
         if quantity is not None:
             quantity = Decimal(quantity)
-            quantity = quantity.quantize(Decimal('.0001'))
+            quantity = quantity.quantize(Decimal(".0001"))
 
         return quantity
 
@@ -684,10 +665,10 @@ class Item(CheddarObject):
 
         data = {}
         if quantity:
-            data['quantity'] = self._normalize_quantity(quantity)
+            data["quantity"] = self._normalize_quantity(quantity)
 
         xml = self.request(
-            '/customers/add-item-quantity',
+            "/customers/add-item-quantity",
             code=self.subscription.customer.code,
             item_code=self.code,
             **data
@@ -704,10 +685,10 @@ class Item(CheddarObject):
         passed a quantity of 1 is assumed."""
         data = {}
         if quantity:
-            data['quantity'] = self._normalize_quantity(quantity)
+            data["quantity"] = self._normalize_quantity(quantity)
 
         xml = self.request(
-            '/customers/remove-item-quantity',
+            "/customers/remove-item-quantity",
             code=self.subscription.customer.code,
             item_code=self.code,
             **data
@@ -723,10 +704,10 @@ class Item(CheddarObject):
         """Set the item's quantity to the passed in amount. If nothing is
         passed a quantity of 1 is assumed."""
         data = {}
-        data['quantity'] = self._normalize_quantity(quantity)
+        data["quantity"] = self._normalize_quantity(quantity)
 
         xml = self.request(
-            '/customers/set-item-quantity',
+            "/customers/set-item-quantity",
             code=self.subscription.customer.code,
             item_code=self.code,
             **data
@@ -740,7 +721,6 @@ class Item(CheddarObject):
 
 
 class MetaDatum(CheddarObject):
-
     def __init__(self, parent=None, **kwargs):
         super(MetaDatum, self).__init__(parent, **kwargs)
 
@@ -748,10 +728,10 @@ class MetaDatum(CheddarObject):
         """Custom setattr method for metadata objects so that we don't interfere
         with the name of the metadata when doing the camelcase/underscore
         conversion."""
-        if key[0] == '_':
+        if key[0] == "_":
             self.__dict__[key] = value
-        elif key == 'id':
-            raise AttributeError('CheddarGetter ID is immutable')
+        elif key == "id":
+            raise AttributeError("CheddarGetter ID is immutable")
         else:
             if key not in self._data or self._data[key] != value:
                 self._to_persist[key] = value
@@ -761,13 +741,13 @@ class MetaDatum(CheddarObject):
         """Custom getattr method for metadata objects so that we don't interfere
         with the name of the metadata when doing the camelcase/underscore
         conversion."""
-        if key == 'id':
-            return self.__dict__['id']
-        elif key[0] == '_' or key in self.__dict__:
+        if key == "id":
+            return self.__dict__["id"]
+        elif key[0] == "_" or key in self.__dict__:
             return self.__dict__[key]
         elif key in self._to_persist:
             return self._to_persist[key]
         elif key in self._data:
             return self._data[key]
         else:
-            raise AttributeError, 'Key {} does not exist'.format(key)
+            raise AttributeError("Key {} does not exist".format(key))
