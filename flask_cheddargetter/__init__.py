@@ -16,6 +16,7 @@ import requests
 import datetime
 import inflection
 import simplejson as json
+from dataclasses import dataclass
 from decimal import Decimal
 from os import environ
 from lxml import etree
@@ -115,6 +116,7 @@ class CheddarGetter(object):
             return cookie
 
 
+@dataclass
 class CheddarObject(object):
     """A base class for CheddarGetter objects."""
 
@@ -159,6 +161,8 @@ class CheddarObject(object):
         if key in ["id", "code"]:
             return self.__dict__["_{}".format(key)]
         elif key[0] == "_" or key in self.__dict__:
+            if key not in self.__dict__:
+                raise AttributeError
             return self.__dict__[key]
         elif key in self._to_persist:
             return self._to_persist[inflection.underscore(key)]

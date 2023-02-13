@@ -5,7 +5,7 @@ from distutils.core import setup
 
 setup(
     name="flask_cheddargetter",
-    version="0.1.2.4",
+    version="0.1.2.5",
     description="A Flask extension for integrating subscriptions via"
     "CheddarGetter (http://cheddargetter.com).",
     author="Thomas Linton",
