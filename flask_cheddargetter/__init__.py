@@ -566,7 +566,7 @@ class Subscription(CheddarObject):
         return self.plans[0]
 
     @property
-    def current_invoice(self):
+    def invoice(self):
         return self.invoices[0]
 
     @property
